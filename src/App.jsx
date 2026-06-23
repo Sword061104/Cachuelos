@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { TrendingUp, Sparkles, Briefcase, CheckCircle, LayoutGrid, Users, ShieldCheck, AlertCircle, LogOut, Trophy, BarChart2, Home, Map, ChevronDown, MapPin, Clock, Navigation, Truck, Dog, Flower2, Package, ShoppingBag, Wrench, BookOpen, ChefHat, Star, Search, RefreshCw, PlusCircle, Tag, DollarSign, Calendar, X, Bell, ThumbsUp, ClipboardList, User, FileText, Heart, Zap } from 'lucide-react';
+import { TrendingUp, Sparkles, Briefcase, CheckCircle, LayoutGrid, Users, ShieldCheck, AlertCircle, LogOut, Trophy, BarChart2, Home, Map, ChevronDown, MapPin, Clock, Navigation, Truck, Dog, Flower2, Package, ShoppingBag, Wrench, BookOpen, ChefHat, Star, Search, RefreshCw, PlusCircle, Tag, DollarSign, Calendar, X, Bell, ThumbsUp, ClipboardList, User, FileText, Heart, Zap, Link2, Camera, Edit3, Save, Compass, Shield, AlertTriangle} from 'lucide-react';
 
 // ─── SUPABASE ─────────────────────────────────────────────────────────────────
 const SUPA_URL = 'https://nhnrvycafvmmvnpmkuop.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5obnJ2eWNhZnZtbXZucG1rdW9wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc1NzkyNzIsImV4cCI6MjA5MzE1NTI3Mn0.8XvbZfYYbfmL2MOv3BkkgzyySuMnsVYC5dviZkszRJQ';
-const sb = createClient(SUPA_URL, SUPA_KEY);
+const sb = createClient(SUPA_URL, SUPA_KEY);const ADMIN_ID = '012c58ca-d03a-4a67-86c0-de1a69c805d7';
 
 // ─── ESTILOS ──────────────────────────────────────────────────────────────────
 const G = `
@@ -129,6 +129,36 @@ function distKm(a,b){const R=6371,dLat=(b.lat-a.lat)*Math.PI/180,dLon=(b.lng-a.l
 function fmtDist(km){return km<1?`${Math.round(km*1000)}m`:`${km.toFixed(1)}km`}
 function fmtDate(d){try{return new Date(d).toLocaleDateString('es-PE',{day:'numeric',month:'short'})}catch{return '—'}}
 
+// Calcula las preferencias de un trabajador combinando:
+// 1) categorías favoritas marcadas a mano en el perfil (profile.skills)
+// 2) categorías y distritos donde ya trabajó antes (historial de jobs completados)
+// Devuelve un Set de categorías preferidas y un Set de distritos preferidos.
+function getWorkerPreferences(profile, completedJobs){
+  const favCats = new Set(profile?.skills || []);
+  const histCats = new Set();
+  const histDistricts = new Set();
+  (completedJobs||[]).forEach(j=>{
+    if(j.category) histCats.add(j.category);
+    const d = j.district || j.location;
+    if(d) histDistricts.add(d);
+  });
+  // Unión: favoritas manuales + historial real
+  const preferredCats = new Set([...favCats, ...histCats]);
+  return { preferredCats, histDistricts, favCats, histCats };
+}
+
+// Da un puntaje de "qué tan recomendado" es un trabajo para un trabajador,
+// basado en si la categoría coincide con sus preferidas y si el distrito
+// coincide con donde trabajó antes. Mayor puntaje = más relevante.
+function scoreJobForWorker(job, prefs){
+  let score = 0;
+  if(prefs.favCats.has(job.category)) score += 3;       // marcó esta categoría como favorita
+  else if(prefs.histCats.has(job.category)) score += 2; // ya trabajó en esta categoría antes
+  const d = job.district || job.location;
+  if(d && prefs.histDistricts.has(d)) score += 1;        // ya trabajó en ese distrito antes
+  return score;
+}
+
 // Carga Leaflet dinámicamente con manejo de error
 function loadLeaflet(onOk, onErr){
   if(window.L){onOk();return;}
@@ -156,6 +186,11 @@ function StatusTag({status}){const s=STATUS[status]||STATUS.open;return <span st
 function Avatar({name,size=36,color='#EA580C'}){const init=(name||'?').split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase();return <div style={{width:size,height:size,borderRadius:'50%',background:color,color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:800,fontSize:size*.38,flexShrink:0}}>{init}</div>}
 function Stars({value=0,onRate,size=18}){const[hov,setHov]=useState(0);return <div style={{display:'flex',gap:2}}>{[1,2,3,4,5].map(n=><span key={n} onClick={()=>onRate?.(n)} onMouseEnter={()=>onRate&&setHov(n)} onMouseLeave={()=>onRate&&setHov(0)} style={{fontSize:size,color:n<=(hov||value)?'#F59E0B':'#E5E7EB',cursor:onRate?'pointer':'default',lineHeight:1}}>★</span>)}</div>;}
 function VerifiedBadge({status}){if(status==='verified')return <span style={{display:'inline-flex',alignItems:'center',gap:4,background:'#EFF6FF',color:'#1D4ED8',border:'1px solid #BFDBFE',borderRadius:20,padding:'2px 10px',fontSize:11,fontWeight:700}}><ShieldCheck size={11}/>Verificado</span>;if(status==='reviewing')return <span style={{display:'inline-flex',alignItems:'center',gap:4,background:'#FFFBEB',color:'#92400E',border:'1px solid #FDE68A',borderRadius:20,padding:'2px 10px',fontSize:11,fontWeight:700}}><AlertCircle size={11}/>En revisión</span>;return <span style={{display:'inline-flex',alignItems:'center',gap:4,background:'#F3F4F6',color:'#6B7280',border:'1px solid #E5E7EB',borderRadius:20,padding:'2px 10px',fontSize:11,fontWeight:700}}><AlertCircle size={11}/>Sin verificar</span>;}
+function RecommendedBadge({reason}){
+  return <span className="tag" style={{background:'#F5F3FF',color:'#5B21B6',display:'inline-flex',alignItems:'center',gap:4}}>
+    <Star size={11} fill="#5B21B6" color="#5B21B6"/>{reason||'Para ti'}
+  </span>;
+}
 function Toast({msg,type}){return <div style={{position:'fixed',bottom:24,right:24,zIndex:9999,background:type==='error'?'#FEF2F2':'#F0FDF4',border:`1.5px solid ${type==='error'?'#FCA5A5':'#86EFAC'}`,color:type==='error'?'#DC2626':'#16A34A',padding:'14px 20px',borderRadius:16,fontWeight:700,fontSize:14,boxShadow:'0 8px 24px rgba(0,0,0,.12)',animation:'fadeUp .25s ease-out'}}>{msg}</div>}
 function Spin(){return <div style={{display:'flex',justifyContent:'center',alignItems:'center',padding:60}}><div style={{width:32,height:32,border:'3px solid #F3F4F6',borderTop:'3px solid #EA580C',borderRadius:'50%',animation:'spin 1s linear infinite'}}/></div>}
 function Field({label,error,children}){return <div style={{marginBottom:16}}><label style={{fontSize:13,fontWeight:700,color:'#374151',display:'block',marginBottom:6}}>{label}</label>{children}{error&&<p style={{color:'#EF4444',fontSize:12,marginTop:4,fontWeight:500}}>⚠ {error}</p>}</div>}
@@ -575,6 +610,166 @@ function LocationPicker({initialCenter, value, onChange}){
 }
 
 // ─── AUTH ─────────────────────────────────────────────────────────────────────
+function VerificationModal({profile, onClose, onDone, toast}){
+  const[step,setStep]=useState('dni'); // 'dni' | 'selfie' | 'done'
+  const[dniUrl,setDniUrl]=useState('');
+  const[selfieUrl,setSelfieUrl]=useState('');
+  const[uploading,setUploading]=useState(false);
+  const videoRef=useRef(null);
+  const[stream,setStream]=useState(null);
+
+  const startCamera=async()=>{
+    try{
+      const s=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'},audio:false});
+      setStream(s);
+      if(videoRef.current) videoRef.current.srcObject=s;
+    }catch(e){toast('No se pudo acceder a la cámara','error');}
+  };
+  const stopCamera=()=>{
+    stream?.getTracks().forEach(t=>t.stop());
+    setStream(null);
+  };
+  useEffect(()=>()=>stopCamera(),[]);
+
+  const capture=async(type)=>{
+    if(!videoRef.current) return;
+    const canvas=document.createElement('canvas');
+    canvas.width=videoRef.current.videoWidth;
+    canvas.height=videoRef.current.videoHeight;
+    canvas.getContext('2d').drawImage(videoRef.current,0,0);
+    canvas.toBlob(async(blob)=>{
+      setUploading(true);
+      const path=`${profile.id}/${type}.jpg`;
+      const{error}=await sb.storage.from('verification-docs').upload(path,blob,{upsert:true,contentType:'image/jpeg'});
+      if(error){toast('Error al subir imagen','error');setUploading(false);return;}
+const{data}=await sb.storage.from('verification-docs').createSignedUrl(path,60*60*24*7); // válido 7 días
+       stopCamera();
+      if(type==='dni'){setDniUrl(data.signedUrl);setStep('selfie');}
+      else{setSelfieUrl(data.signedUrl);setStep('done');}
+      setUploading(false);
+    },'image/jpeg',0.85);
+  };
+
+  const uploadFile=async(e,type)=>{
+    const file=e.target.files?.[0];
+    if(!file)return;
+    setUploading(true);
+    const path=`${profile.id}/${type}.jpg`;
+    const{error}=await sb.storage.from('verification-docs').upload(path,file,{upsert:true});
+    if(error){toast('Error al subir','error');setUploading(false);return;}
+    const{data}=await sb.storage.from('verification-docs').createSignedUrl(path,60*60*24*7);
+    if(type==='dni'){setDniUrl(data.signedUrl);setStep('selfie');}
+    else{setSelfieUrl(data.signedUrl);setStep('done');}
+    setUploading(false);
+  };
+
+  const submit=async()=>{
+    setUploading(true);
+    await sb.from('profiles').update({
+      dni_photo_url:dniUrl,
+      selfie_photo_url:selfieUrl,
+      verification_status:'reviewing'
+    }).eq('id',profile.id);
+    setUploading(false);
+    toast('✅ Documentos enviados, pronto te notificamos');
+    onDone();
+  };
+
+  const stepLabel={'dni':'Foto del DNI','selfie':'Selfie tuya','done':'Listo'}[step];
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.6)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={e=>{if(e.target===e.currentTarget){stopCamera();onClose();}}}>
+      <div className="card fade-up" style={{maxWidth:440,width:'100%',overflow:'hidden'}}>
+        <div style={{background:'linear-gradient(135deg,#1D4ED8,#3B82F6)',padding:'22px 28px'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+            <div>
+              <h2 style={{color:'#fff',fontWeight:800,fontSize:19}}>🛡 Verificar identidad</h2>
+              <p style={{color:'rgba(255,255,255,.8)',fontSize:13,marginTop:4}}>Paso: {stepLabel}</p>
+            </div>
+            <button onClick={()=>{stopCamera();onClose();}} style={{color:'rgba(255,255,255,.8)',fontSize:22}}>×</button>
+          </div>
+          {/* Progress */}
+          <div style={{display:'flex',gap:6,marginTop:16}}>
+            {['dni','selfie','done'].map((s,i)=>(
+              <div key={s} style={{flex:1,height:4,borderRadius:2,background:['dni','selfie','done'].indexOf(step)>=i?'#fff':'rgba(255,255,255,.3)'}}/>
+            ))}
+          </div>
+        </div>
+
+        <div style={{padding:28}}>
+          {step==='done'?(
+            <div style={{textAlign:'center'}}>
+              <div style={{fontSize:52,marginBottom:12}}>🎉</div>
+              <h3 style={{fontWeight:800,fontSize:18,marginBottom:8}}>¡Todo listo!</h3>
+              <p style={{color:'#6B7280',fontSize:14,marginBottom:24}}>Revisaremos tus documentos y te confirmaremos en breve.</p>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:24}}>
+                <div style={{borderRadius:12,overflow:'hidden',border:'1.5px solid #E5E7EB'}}><img src={dniUrl} alt="DNI" style={{width:'100%',height:100,objectFit:'cover'}}/><p style={{fontSize:11,color:'#6B7280',textAlign:'center',padding:6}}>DNI</p></div>
+                <div style={{borderRadius:12,overflow:'hidden',border:'1.5px solid #E5E7EB'}}><img src={selfieUrl} alt="Selfie" style={{width:'100%',height:100,objectFit:'cover'}}/><p style={{fontSize:11,color:'#6B7280',textAlign:'center',padding:6}}>Selfie</p></div>
+              </div>
+              <button className="btn-orange" style={{width:'100%',justifyContent:'center',padding:13}} onClick={submit} disabled={uploading}>{uploading?'⏳ Enviando...':'Enviar para revisión →'}</button>
+            </div>
+          ):(
+            <div>
+              <p style={{fontSize:14,color:'#374151',marginBottom:16,lineHeight:1.6}}>
+                {step==='dni'?'Toma una foto clara de la parte frontal de tu DNI. Asegúrate que sea legible.':'Mira a la cámara y toma una selfie. Asegúrate que tu cara esté bien iluminada.'}
+              </p>
+              {/* Preview de cámara */}
+              <div style={{borderRadius:16,overflow:'hidden',background:'#F3F4F6',marginBottom:16,position:'relative',minHeight:200}}>
+                <video ref={videoRef} autoPlay playsInline muted style={{width:'100%',display:'block',borderRadius:16}}/>
+                {!stream&&<div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:8,color:'#9CA3AF'}}>
+                  <Camera size={36}/>
+                  <span style={{fontSize:13}}>Cámara no activa</span>
+                </div>}
+              </div>
+              <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
+                {!stream?(
+                  <button className="btn-blue" style={{flex:1,justifyContent:'center'}} onClick={startCamera}><Camera size={15}/>Activar cámara</button>
+                ):(
+                  <button className="btn-orange" style={{flex:1,justifyContent:'center'}} onClick={()=>capture(step)} disabled={uploading}>{uploading?'⏳ Procesando...':'📸 Capturar'}</button>
+                )}
+                <label className="btn-outline" style={{flex:1,justifyContent:'center',cursor:'pointer'}}>
+                  📁 Subir archivo
+                  <input type="file" accept="image/*" style={{display:'none'}} onChange={e=>uploadFile(e,step)} disabled={uploading}/>
+                </label>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+function VerificationBanner({status, onStartVerification}){
+  if(status==='verified') return null;
+  if(status==='reviewing') return(
+    <div style={{background:'#FFFBEB',border:'1.5px solid #FDE68A',borderRadius:14,padding:'14px 20px',marginBottom:20,display:'flex',alignItems:'center',gap:12}}>
+      <AlertTriangle size={20} color="#D97706"/>
+      <div style={{flex:1}}>
+        <span style={{fontWeight:700,fontSize:13,color:'#92400E'}}>Verificación en revisión. </span>
+        <span style={{fontSize:13,color:'#6B7280'}}>Estamos revisando tus documentos, te avisaremos pronto.</span>
+      </div>
+    </div>
+  );
+  if(status==='rejected') return(
+    <div style={{background:'#FEF2F2',border:'1.5px solid #FCA5A5',borderRadius:14,padding:'14px 20px',marginBottom:20,display:'flex',alignItems:'center',gap:12}}>
+      <AlertTriangle size={20} color="#DC2626"/>
+      <div style={{flex:1}}>
+        <span style={{fontWeight:700,fontSize:13,color:'#991B1B'}}>Verificación rechazada. </span>
+        <span style={{fontSize:13,color:'#6B7280'}}>Tus documentos no pudieron ser validados.</span>
+      </div>
+      <button className="btn-orange" style={{fontSize:12,padding:'7px 14px'}} onClick={onStartVerification}>Reintentar</button>
+    </div>
+  );
+  return(
+    <div style={{background:'#EFF6FF',border:'1.5px solid #93C5FD',borderRadius:14,padding:'14px 20px',marginBottom:20,display:'flex',alignItems:'center',gap:12}}>
+      <Shield size={20} color="#2563EB"/>
+      <div style={{flex:1}}>
+        <span style={{fontWeight:700,fontSize:13,color:'#1E40AF'}}>Verifica tu identidad. </span>
+        <span style={{fontSize:13,color:'#6B7280'}}>Necesitas verificarte para publicar o aceptar trabajos.</span>
+      </div>
+      <button className="btn-orange" style={{fontSize:12,padding:'7px 14px'}} onClick={onStartVerification}>Verificarme →</button>
+    </div>
+  );
+}
 function AuthScreen({onAuth}){
   const[mode,setMode]=useState('login');
   const[role,setRole]=useState('trabajador');
@@ -583,6 +778,8 @@ function AuthScreen({onAuth}){
   const[form,setForm]=useState({email:'',password:'',fullName:'',phone:'',dni:''});
   const[errors,setErrors]=useState({});
   const[emailSent,setEmailSent]=useState(false);
+  const[acceptedTerms,setAcceptedTerms]=useState(false);
+  const[showTerms,setShowTerms]=useState(false);
   const set=(k,v)=>{setForm(p=>({...p,[k]:v}));setErrors(p=>({...p,[k]:''}))};
   const validate=()=>{const e={};if(mode==='register'){if(!form.fullName.trim())e.fullName='Nombre requerido';if(!form.phone.match(/^\d{9}$/))e.phone='Ingresa 9 dígitos';if(form.dni.trim().length<8)e.dni='Mínimo 8 caracteres';}if(!form.email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/))e.email='Correo inválido';if(form.password.length<6)e.password='Mínimo 6 caracteres';setErrors(e);return Object.keys(e).length===0;};
   const handleSubmit=async()=>{if(!validate())return;setLoading(true);if(mode==='login'){const{data,error}=await sb.auth.signInWithPassword({email:form.email,password:form.password});if(error){setErrors({email:error.message});setLoading(false);return}onAuth(data.user);}else{const{data,error}=await sb.auth.signUp({email:form.email,password:form.password,options:{data:{full_name:form.fullName,role}}});if(error){setErrors({email:error.message});setLoading(false);return}if(data.user){await sb.from('profiles').upsert({id:data.user.id,full_name:form.fullName,email:form.email,phone:form.phone,dni:form.dni,role,verification_status:'reviewing'});}if(!data.session){setEmailSent(true);setLoading(false);return;}onAuth(data.user);}setLoading(false);};
@@ -590,6 +787,45 @@ function AuthScreen({onAuth}){
   const isRegister = mode === 'register';
 
   // Pantalla de verificación de correo
+  if(showTerms) return(
+  <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.6)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}
+    onClick={e=>{if(e.target===e.currentTarget)setShowTerms(false)}}>
+    <div className="card fade-up" style={{maxWidth:600,width:'100%',maxHeight:'85vh',overflow:'hidden',display:'flex',flexDirection:'column'}}>
+      <div style={{background:'linear-gradient(135deg,#EA580C,#F97316)',padding:'22px 28px',display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0}}>
+        <div>
+<h2 style={{color:'#fff',fontWeight:800,fontSize:19}}>Términos y Condiciones</h2>
+          <p style={{color:'rgba(255,255,255,.8)',fontSize:13,marginTop:2}}>Última actualización: 22 de junio de 2026</p>
+        </div>
+        <button onClick={()=>setShowTerms(false)} style={{color:'rgba(255,255,255,.8)',fontSize:22}}>×</button>
+      </div>
+      <div style={{overflowY:'auto',padding:28,flex:1,fontSize:13,color:'#374151',lineHeight:1.7}}>
+{[
+  ['1. Naturaleza del servicio','Cachuelos es un intermediario tecnológico que facilita el contacto entre Empleadores y Trabajadores. No es empleador de los Trabajadores ni garantiza la calidad, legalidad o resultado de los trabajos publicados.'],
+  ['2. Registro y elegibilidad','Debes registrarte con información veraz: nombre completo, celular, DNI y correo. Eres responsable de la confidencialidad de tu contraseña y de toda actividad desde tu cuenta.'],
+  ['3. Verificación de identidad','Para publicar o aceptar trabajos es obligatorio verificar tu identidad con una foto de tu DNI y una selfie. Las imágenes se almacenan en espacio restringido, visibles solo para ti y el equipo de administración.'],
+  ['4. Datos personales','De acuerdo con la Ley N.° 29733, Cachuelos recopila nombre, DNI, teléfono, correo, fotos de verificación y datos de uso, exclusivamente para operar la Plataforma. Tienes derecho a acceder, rectificar y cancelar tus datos.'],
+  ['5. Publicación y aceptación de trabajos','Solo usuarios verificados pueden publicar o aceptar trabajos. Cachuelos cobra una comisión del 10% sobre el precio de cada trabajo completado, descontada automáticamente del pago al Trabajador.'],
+  ['6. Pagos (modo demo)','El sistema de pagos está en modo de demostración con fines académicos. Ningún cobro real es procesado. Esta sección se actualizará cuando se integre un procesador de pagos real.'],
+  ['7. Cancelaciones','El Empleador puede cancelar trabajos en estado Abierto, Aceptado o En progreso. En los dos últimos puede reabrir el trabajo para otro Trabajador o cancelarlo definitivamente.'],
+  ['8. Disputas','Cualquier usuario puede reportar problemas mediante el sistema de disputas. Cachuelos actúa como mediador de buena fe pero no garantiza una resolución específica.'],
+  ['9. Calificaciones','Las calificaciones enviadas no pueden editarse ni eliminarse para preservar la integridad del sistema de reputación.'],
+  ['10. Conducta','Queda prohibido publicar información falsa, suplantar identidades, usar la Plataforma para fines ilegales o acosar a otros usuarios.'],
+  ['11. Limitación de responsabilidad','Cachuelos no participa en la ejecución de los trabajos y no será responsable por daños derivados de la relación entre Empleadores y Trabajadores.'],
+].map(([titulo,texto])=>(
+  <div key={titulo} style={{marginBottom:20}}>
+    <div style={{fontWeight:700,color:'#111827',marginBottom:4,fontSize:13}}>{titulo}</div>
+    <p style={{textAlign:'left'}}>{texto}</p>
+  </div>
+))}
+      </div>
+      <div style={{padding:'16px 28px',borderTop:'1.5px solid #F0F1F3',flexShrink:0}}>
+        <button className="btn-orange" style={{width:'100%',justifyContent:'center'}} onClick={()=>{setAcceptedTerms(true);setShowTerms(false);}}>
+           Entendido — cerrar
+        </button>
+      </div>
+    </div>
+  </div>
+);  
   if(emailSent){
     return(
       <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#FEF3E2',padding:20}}>
@@ -737,7 +973,23 @@ function AuthScreen({onAuth}){
                   <input className={`inp ${errors[k]?'inp-err':''}`} type={type} placeholder={ph} value={form[k]} onChange={e=>set(k,e.target.value)}/>
                 </Field>
               ))}
-              <button className="btn-orange" style={{width:'100%',justifyContent:'center',padding:13,fontSize:15,marginTop:4}} onClick={handleSubmit} disabled={loading}>{loading?'⏳ Creando cuenta...':'Crear cuenta →'}</button>
+              <div style={{display:'flex',alignItems:'flex-start',gap:8,marginBottom:16,marginTop:4}}>
+            <input
+            type="checkbox"
+            id="acceptTerms"
+           checked={acceptedTerms}
+           onChange={e=>setAcceptedTerms(e.target.checked)}
+          style={{marginTop:3,width:16,height:16,accentColor:'#EA580C',cursor:'pointer',flexShrink:0}}
+          />
+          <label htmlFor="acceptTerms" style={{fontSize:13,color:'#374151',lineHeight:1.5,cursor:'pointer'}}>
+          Acepto los{' '}
+         <button type="button" onClick={()=>setShowTerms(true)} style={{color:'#EA580C',fontWeight:700,textDecoration:'underline',background:'none',border:'none',cursor:'pointer',padding:0,fontSize:13}}>
+      Términos y Condiciones
+           </button>{' '}
+        de Cachuelos, incluyendo el tratamiento de mis datos personales y la verificación de identidad con DNI y selfie.
+             </label>
+             </div>
+              <button className="btn-orange" style={{width:'100%',justifyContent:'center',padding:13,fontSize:15,marginTop:4}} onClick={handleSubmit} disabled={loading||!acceptedTerms}>{loading?'⏳ Creando cuenta...':'Crear cuenta →'}</button>
             </div>
           )}
 
@@ -788,6 +1040,7 @@ function Navbar({page,nav,profile,onSignOut}){
             <ChevronDown size={14} color="#9CA3AF"/>
           </button>
           {isEmp&&<button className="btn-orange" onClick={()=>nav('post-job')} style={{fontSize:13,padding:'8px 16px',marginLeft:4}}>+ Publicar</button>}
+          {profile?.id===ADMIN_ID&&<button className="btn-ghost" onClick={()=>nav('admin')} style={{color:'#7C3AED',fontSize:13}}>🛡 Admin</button>}
           <button className="btn-ghost" onClick={onSignOut} title="Salir" style={{color:'#9CA3AF'}}>
             <LogOut size={16}/>
           </button>
@@ -798,12 +1051,12 @@ function Navbar({page,nav,profile,onSignOut}){
 }
 
 // ─── JOB CARD ─────────────────────────────────────────────────────────────────
-function JobCard({job,nav,delay=0,dist}){
+function JobCard({job,nav,delay=0,dist,recommended,recReason}){
   return(
-    <div className="card card-hover fade-up" style={{padding:20,animationDelay:`${delay*40}ms`,textAlign:'left'}} onClick={()=>nav('job',{jid:job.id})}>
+    <div className="card card-hover fade-up" style={{padding:20,animationDelay:`${delay*40}ms`,textAlign:'left',border:recommended?'1.5px solid #C4B5FD':undefined}} onClick={()=>nav('job',{jid:job.id})}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}>
         <div style={{flex:1,minWidth:0,textAlign:'left'}}>
-          <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:8}}><CatTag cat={job.category}/><StatusTag status={job.status}/></div>
+          <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:8}}><CatTag cat={job.category}/><StatusTag status={job.status}/>{recommended&&<RecommendedBadge reason={recReason}/>}</div>
           <h3 style={{fontWeight:600,fontSize:14,color:'#374151',lineHeight:1.45,marginBottom:3,textAlign:'left'}}>{job.title}</h3>
           <p style={{fontSize:12,color:'#9CA3AF',textAlign:'left',display:'flex',alignItems:'center',gap:4}}><Users size={11}/>por {job.poster_name}</p>
         </div>
@@ -823,10 +1076,46 @@ function JobCard({job,nav,delay=0,dist}){
   );
 }
 
+// ─── RECOMENDADOS PARA TI ────────────────────────────────────────────────────
+// Sección destacada que aparece arriba del feed del trabajador, mostrando
+// los trabajos que más calzan con su historial y categorías favoritas.
+function RecommendedSection({jobs, prefs, nav}){
+  const recommended = jobs
+    .map(j=>({...j, _score: scoreJobForWorker(j, prefs)}))
+    .filter(j=>j._score>0)
+    .sort((a,b)=>b._score-a._score)
+    .slice(0,4);
+
+  if(recommended.length===0) return null;
+
+  return(
+    <div className="fade-up-2" style={{marginBottom:28}}>
+      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:16}}>
+        <div style={{background:'linear-gradient(135deg,#7C3AED,#A78BFA)',borderRadius:10,padding:8,display:'flex',alignItems:'center',justifyContent:'center'}}><Compass size={18} color="#fff"/></div>
+        <div>
+          <h2 style={{fontWeight:700,fontSize:17,color:'#111827'}}>Recomendados para ti</h2>
+          <p style={{fontSize:12,color:'#9CA3AF'}}>Según tus trabajos anteriores y tus categorías favoritas</p>
+        </div>
+      </div>
+      <div className="grid-jobs" style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',gap:16}}>
+        {recommended.map((job,i)=>{
+          const reason = prefs.favCats.has(job.category)
+            ? '★ Favorita'
+            : (job.district||job.location)&&prefs.histDistricts.has(job.district||job.location)
+              ? 'Cerca de ti'
+              : 'Ya hiciste esto';
+          return <JobCard key={job.id} job={job} nav={nav} delay={i} recommended recReason={reason}/>;
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── HOME ─────────────────────────────────────────────────────────────────────
-function HomePage({profile,nav,toast}){
+function HomePage({profile,nav,toast,onStartVerification}){
   const[jobs,setJobs]=useState([]);
   const[allJobs,setAllJobs]=useState([]);
+  const[myCompletedJobs,setMyCompletedJobs]=useState([]);
   const[loading,setLoading]=useState(true);
   const[search,setSearch]=useState('');
   const[cat,setCat]=useState('all');
@@ -836,13 +1125,30 @@ function HomePage({profile,nav,toast}){
   const[leafOk,setLeafOk]=useState(!!window.L);
   const[leafErr,setLeafErr]=useState(false);
   const[selId,setSelId]=useState(null);
-  const[showBanner,setShowBanner]=useState(true);
+  const[showBanner,setShowBanner]=useState(false);
+  useEffect(()=>{
+  if(profile?.verification_status==='verified') setShowBanner(true);
+  else setShowBanner(false);
+  },[profile]);
   const isEmp=profile?.role==='empleador';
 
+useEffect(()=>{
+  if(profile?.verification_status==='verified') setShowBanner(true);
+},[profile?.verification_status]);
   useEffect(()=>{
     fetchJobs();
     loadLeaflet(()=>setLeafOk(true),()=>setLeafErr(true));
+    // Si es trabajador, traemos su historial de trabajos completados
+    // para poder calcular sus preferencias (categorías y distritos)
+    if(!isEmp&&profile?.id){
+      sb.from('jobs').select('category,district,location').eq('worker_id',profile.id).eq('status','completed')
+        .then(({data})=>setMyCompletedJobs(data||[]));
+    }
   },[]);
+
+  // Preferencias del trabajador: combina categorías marcadas como favoritas (profile.skills)
+  // con el historial real de trabajos completados (categorías + distritos)
+  const prefs = getWorkerPreferences(profile, myCompletedJobs);
 
   const fetchJobs=async()=>{
     setLoading(true);
@@ -870,14 +1176,23 @@ function HomePage({profile,nav,toast}){
   },[]);
 
   const getGeo=()=>{setGeoL(true);navigator.geolocation?.getCurrentPosition(p=>{setUserPos({lat:p.coords.latitude,lng:p.coords.longitude});setGeoL(false);toast('📍 Ubicación obtenida')},()=>{setUserPos({lat:-12.1219,lng:-77.0234});setGeoL(false);toast('📍 Usando Lima centro')});};
-  const filtered=jobs.filter(j=>{const q=search.toLowerCase();return(!q||j.title?.toLowerCase().includes(q)||j.description?.toLowerCase().includes(q)||j.location?.toLowerCase().includes(q))&&(cat==='all'||j.category===cat)}).map(j=>({...j,dist:userPos&&j.latitude&&j.longitude?distKm(userPos,{lat:j.latitude,lng:j.longitude}):null})).sort((a,b)=>a.dist!=null&&b.dist!=null?a.dist-b.dist:0);
+  const filtered=jobs.filter(j=>{const q=search.toLowerCase();return(!q||j.title?.toLowerCase().includes(q)||j.description?.toLowerCase().includes(q)||j.location?.toLowerCase().includes(q))&&(cat==='all'||j.category===cat)}).map(j=>({...j,dist:userPos&&j.latitude&&j.longitude?distKm(userPos,{lat:j.latitude,lng:j.longitude}):null})).sort((a,b)=>{
+    // Si el usuario activó "cerca de mí", la cercanía manda
+    if(a.dist!=null&&b.dist!=null) return a.dist-b.dist;
+    // Si no, priorizamos por preferencias del trabajador (categoría/distrito ya trabajado)
+    if(!isEmp){
+      const sa=scoreJobForWorker(a,prefs), sb_=scoreJobForWorker(b,prefs);
+      if(sa!==sb_) return sb_-sa;
+    }
+    return 0;
+  });
 
   if(isEmp){
     const myJobs=allJobs.filter(j=>j.poster_id===profile.id);
     return(
       <div className="fade-up">
-        {showBanner&&<SecurityBanner onClose={()=>setShowBanner(false)}/>}
-        {/* Hero empleador — mismo estilo que trabajador */}
+       {profile&&<VerificationBanner status={profile?.verification_status} onStartVerification={onStartVerification}/>}
+        {/* Hero empleador */}
         <div style={{position:'relative',background:'#FEF3E2',borderRadius:24,marginBottom:24,overflow:'hidden',display:'grid',gridTemplateColumns:'1fr 1fr',minHeight:280}}>
           <div style={{padding:'40px 40px',display:'flex',flexDirection:'column',justifyContent:'center',position:'relative',zIndex:2,alignItems:'flex-start'}}>
             <div style={{display:'inline-flex',alignItems:'center',gap:6,background:'rgba(234,88,12,.12)',color:'#EA580C',padding:'5px 14px',borderRadius:20,fontSize:12,fontWeight:700,marginBottom:16}}>
@@ -928,7 +1243,8 @@ function HomePage({profile,nav,toast}){
 
   return(
     <div>
-      {showBanner&&<SecurityBanner onClose={()=>setShowBanner(false)}/>}
+{showBanner&&profile?.verification_status==='verified'&&<SecurityBanner onClose={()=>setShowBanner(false)}/>}
+       {profile&&<VerificationBanner status={profile?.verification_status} onStartVerification={onStartVerification}/>}
       {/* HERO — un solo contenedor, sin divisiones, imagen con overlay suave */}
       <div className="fade-up" style={{position:'relative',background:'#FEF3E2',borderRadius:24,marginBottom:28,overflow:'hidden',display:'grid',gridTemplateColumns:'1fr 1fr',minHeight:320}}>
         {/* Texto izquierda */}
@@ -972,6 +1288,7 @@ function HomePage({profile,nav,toast}){
           </div>
         ))}
       </div>
+      <RecommendedSection jobs={jobs} prefs={prefs} nav={nav}/>
       <MercadoSection jobs={allJobs}/>
       <RankingSection/>
       <div className="fade-up-2 card" style={{padding:'12px 16px',marginBottom:14,display:'flex',gap:12,flexWrap:'wrap',alignItems:'center'}}>
@@ -1011,7 +1328,10 @@ function HomePage({profile,nav,toast}){
         </div>
       ):(
         <div className="grid-jobs" style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))',gap:18}}>
-          {filtered.map((job,i)=><JobCard key={job.id} job={job} nav={nav} delay={i} dist={job.dist}/>)}
+          {filtered.map((job,i)=>{
+            const score = !isEmp ? scoreJobForWorker(job,prefs) : 0;
+            return <JobCard key={job.id} job={job} nav={nav} delay={i} dist={job.dist} recommended={score>0} recReason={prefs.favCats.has(job.category)?'★ Favorita':'Para ti'}/>;
+          })}
         </div>
       )}
     </div>
@@ -1128,7 +1448,7 @@ function JobDetailPage({profile,jid,nav,back,toast}){
   const canStart   = job.status==='accepted'    && isWorker;
   const canFinish  = job.status==='in_progress' && isWorker  && !job.worker_finished;
   const canConfirm = job.status==='in_progress' && isPoster  && job.worker_finished;
-  const canCancel  = job.status==='open'        && isPoster;
+  const canCancel = ['open','accepted','in_progress'].includes(job.status) && isPoster;
   const canRate    = job.status==='completed'   && ((isPoster&&!job.poster_rated)||(isWorker&&!job.worker_rated));
   // Estados informativos
   const workerWaiting = isWorker && job.worker_finished && job.status==='in_progress';
@@ -1237,8 +1557,13 @@ function JobDetailPage({profile,jid,nav,back,toast}){
               <div style={{fontWeight:700,fontSize:15,marginBottom:6}}>🤝 ¿Te interesa este cachuelo?</div>
               <p style={{fontSize:13,color:'#6B7280',marginBottom:14,lineHeight:1.6}}>Al aceptar te comprometes a realizarlo. Ganarás <strong style={{color:'#16A34A'}}>S/{(job.price*.9).toFixed(2)}</strong> netos.</p>
               <button className="btn-orange" style={{width:'100%',justifyContent:'center',padding:13,fontSize:15}}
-                onClick={()=>setModal({icon:'🤝',title:'¿Aceptar este trabajo?',desc:`Te comprometes a realizar "${job.title}" por S/${job.price}. Coordina con el empleador para los detalles.`,confirmLabel:'Sí, aceptar',btnClass:'btn-orange',onConfirm:()=>updateJob({status:'accepted',worker_id:profile.id,worker_name:profile.full_name,worker_email:profile.email}).then(()=>toast('🤝 ¡Trabajo aceptado! Coordina con el empleador.'))})}
-                disabled={acting}>
+              onClick={()=>{
+              if(profile?.verification_status!=='verified'){
+            toast('Debes verificar tu identidad para aceptar trabajos','error');
+            return;
+                 }
+               setModal({icon:'🤝',title:'¿Aceptar este trabajo?',desc:`Te comprometes a realizar "${job.title}" por S/${job.price}. Coordina con el empleador para los detalles.`,confirmLabel:'Sí, aceptar',btnClass:'btn-orange',onConfirm:()=>updateJob({status:'accepted',worker_id:profile.id,worker_name:profile.full_name,worker_email:profile.email}).then(()=>toast('🤝 ¡Trabajo aceptado! Coordina con el empleador.'))});
+                }}                disabled={acting}>
                 ✅ Aceptar trabajo — S/{job.price}
               </button>
             </div>
@@ -1298,13 +1623,28 @@ function JobDetailPage({profile,jid,nav,back,toast}){
           )}
 
           {/* EMPLEADOR: Cancelar */}
-          {canCancel&&(
-            <button className="btn-ghost" style={{color:'#DC2626',border:'1.5px solid #FECACA',marginBottom:16}}
-              onClick={()=>setModal({icon:'❌',title:'¿Cancelar el trabajo?',desc:'Esta acción no se puede deshacer.',confirmLabel:'Sí, cancelar',btnClass:'btn-red',onConfirm:()=>updateJob({status:'cancelled'}).then(()=>toast('❌ Trabajo cancelado.'))})}>
-              ❌ Cancelar publicación
-            </button>
-          )}
-
+{canCancel&&job.status==='open'&&(
+  <button className="btn-ghost" style={{color:'#DC2626',border:'1.5px solid #FECACA',marginBottom:16}}
+    onClick={()=>setModal({icon:'❌',title:'¿Cancelar el trabajo?',desc:'Esta acción no se puede deshacer.',confirmLabel:'Sí, cancelar',btnClass:'btn-red',onConfirm:()=>updateJob({status:'cancelled'}).then(()=>toast('❌ Trabajo cancelado.'))})}>
+    ❌ Cancelar publicación
+  </button>
+)}
+{canCancel&&['accepted','in_progress'].includes(job.status)&&(
+  <div style={{background:'#FEF2F2',border:'1.5px solid #FECACA',borderRadius:16,padding:20,marginBottom:12}}>
+    <div style={{fontWeight:700,fontSize:15,marginBottom:6,color:'#DC2626'}}>⚠ ¿Problemas con este trabajo?</div>
+    <p style={{fontSize:13,color:'#6B7280',marginBottom:14}}>Puedes reabrir el trabajo para otro trabajador o cancelarlo definitivamente.</p>
+    <div style={{display:'flex',gap:10}}>
+      <button className="btn-outline" style={{flex:1,justifyContent:'center',borderColor:'#EA580C',color:'#EA580C'}}
+        onClick={()=>setModal({icon:'🔄',title:'¿Reabrir el trabajo?',desc:'El trabajador actual será removido y el trabajo quedará disponible para otros.',confirmLabel:'Sí, reabrir',btnClass:'btn-orange',onConfirm:()=>updateJob({status:'open',worker_id:null,worker_name:null,worker_email:null,worker_finished:false}).then(()=>toast('🔄 Trabajo reabierto para otros trabajadores.'))})}>
+        🔄 Reabrir para otro
+      </button>
+      <button className="btn-ghost" style={{flex:1,justifyContent:'center',color:'#DC2626',border:'1.5px solid #FECACA'}}
+        onClick={()=>setModal({icon:'❌',title:'¿Cancelar definitivamente?',desc:'Esta acción no se puede deshacer. El trabajo quedará cancelado.',confirmLabel:'Sí, cancelar',btnClass:'btn-red',onConfirm:()=>updateJob({status:'cancelled'}).then(()=>toast('❌ Trabajo cancelado definitivamente.'))})}>
+        ❌ Cancelar definitivo
+      </button>
+    </div>
+  </div>
+)}
           {/* Calificación */}
           {canRate&&(
             <div style={{background:'#FFFBEB',border:'1.5px solid #FDE68A',borderRadius:16,padding:20,marginTop:16,animation:'fadeUp .3s ease-out'}}>
@@ -1318,8 +1658,7 @@ function JobDetailPage({profile,jid,nav,back,toast}){
 
           {/* Chat */}
           {['accepted','in_progress','completed'].includes(job.status)&&(
-            <ChatBox job={job} profile={profile}/>
-          )}
+          <ChatBox job={job} profile={profile} toast={toast}/>          )}
 
           {/* Reseñas */}
           {reviews.length>0&&(
@@ -1343,11 +1682,12 @@ function JobDetailPage({profile,jid,nav,back,toast}){
 }
 
 // ─── CHAT BOX ─────────────────────────────────────────────────────────────────
-function ChatBox({job,profile}){
+  function ChatBox({job,profile,toast}){
   const[msgs,setMsgs]=useState([]);
   const[text,setText]=useState('');
   const[sending,setSending]=useState(false);
   const[open,setOpen]=useState(false);
+  const[showDispute,setShowDispute]=useState(false);
   const bottomRef=useRef(null);
   const pendingRef=useRef(new Set());
 
@@ -1420,9 +1760,12 @@ function ChatBox({job,profile}){
             <div style={{fontSize:11,color:open?'rgba(255,255,255,.8)':'#9CA3AF'}}>Coordina los detalles del trabajo</div>
           </div>
         </div>
-        <span style={{color:open?'#fff':'#EA580C',fontSize:18,fontWeight:700,transform:open?'rotate(180deg)':'none',transition:'transform .2s'}}>⌄</span>
+      <div style={{display:'flex',alignItems:'center',gap:8}}>
+      <span style={{color:open?'#fff':'#EA580C',fontSize:18,fontWeight:700,transform:open?'rotate(180deg)':'none',transition:'transform .2s'}}>⌄</span>
+       {open&&<button onClick={e=>{e.stopPropagation();setShowDispute(true)}} style={{color:'#DC2626',fontSize:11,fontWeight:700,background:'#FEF2F2',border:'1px solid #FECACA',borderRadius:8,padding:'3px 8px'}}>⚠ Reportar</button>}
+         </div>
       </button>
-
+{showDispute&&<DisputeModal job={job} profile={profile} onClose={()=>setShowDispute(false)} toast={toast}/>}
       {/* Panel del chat */}
       {open&&(
         <div style={{border:'1.5px solid #EA580C',borderTop:'none',borderRadius:'0 0 16px 16px',overflow:'hidden'}}>
@@ -1620,7 +1963,10 @@ function PostJobPage({profile,nav,back,toast}){
 
   // Paso 1: validar formulario y abrir modal de pago
   const handleSubmit=async(e)=>{
-    e.preventDefault();
+    e.preventDefault();if(profile?.verification_status!=='verified'){
+  toast('Debes verificar tu identidad antes de publicar','error');
+  return;
+}
     if(!form.category){toast('Selecciona una categoría','error');return}
     if(!loc){toast('Selecciona la ubicación exacta en el mapa','error');return}
     if(!isInLimaModerna(loc.lat,loc.lng)){toast('La ubicación debe estar dentro de Lima Moderna','error');return}
@@ -1749,32 +2095,188 @@ function MyJobsPage({profile,nav}){
     </div>
   );
 }
-
 // ─── PROFILE ──────────────────────────────────────────────────────────────────
-function ProfilePage({currentProfile,pid,nav,back}){
+// ─── EDITAR PERFIL — foto, bio, LinkedIn y categorías favoritas ──────────────
+function EditProfileModal({profile,onClose,onSaved,toast}){
+  const[form,setForm]=useState({
+    bio:profile.bio||'',
+    linkedin_url:profile.linkedin_url||'',
+    photo_url:profile.photo_url||'',
+    skills:profile.skills||[],
+  });
+  const[saving,setSaving]=useState(false);
+  const[uploading,setUploading]=useState(false);
+  const[err,setErr]=useState('');
+  const set=(k,v)=>setForm(p=>({...p,[k]:v}));
+  const isWorker=profile.role==='trabajador';
+
+  const handleFileChange=async(e)=>{
+    const file=e.target.files?.[0];
+    if(!file)return;
+    if(!file.type.startsWith('image/')){setErr('El archivo debe ser una imagen');return}
+    if(file.size>3*1024*1024){setErr('La imagen no puede pesar más de 3MB');return}
+    setErr('');
+    setUploading(true);
+    const ext=file.name.split('.').pop();
+    const path=`${profile.id}/avatar.${ext}`;
+    const{error}=await sb.storage.from('avatars').upload(path,file,{upsert:true,cacheControl:'3600'});
+    if(error){setErr('Error al subir imagen: '+error.message);setUploading(false);return}
+    const{data}=sb.storage.from('avatars').getPublicUrl(path);
+    set('photo_url',data.publicUrl+'?t='+Date.now());    setUploading(false);
+  };
+  const toggleSkill=(catKey)=>{
+    setForm(p=>{
+      const has=p.skills.includes(catKey);
+      return{...p,skills:has?p.skills.filter(s=>s!==catKey):[...p.skills,catKey]};
+    });
+  };
+
+  const validateLinkedIn=(url)=>{
+    if(!url)return true;
+    return /^https?:\/\/(www\.)?linkedin\.com\/.+/i.test(url.trim());
+  };
+
+  const handleSave=async()=>{
+    setErr('');
+    if(form.linkedin_url&&!validateLinkedIn(form.linkedin_url)){
+      setErr('El link de LinkedIn debe ser una URL válida (ej: https://linkedin.com/in/tu-nombre)');
+      return;
+    }
+    if(form.bio.length>280){
+      setErr('La bio no puede tener más de 280 caracteres');
+      return;
+    }
+    setSaving(true);
+    const{error}=await sb.from('profiles').update({
+      bio:form.bio.trim()||null,
+      linkedin_url:form.linkedin_url.trim()||null,
+      photo_url:form.photo_url.trim()||null,
+      skills:form.skills,
+    }).eq('id',profile.id);
+    setSaving(false);
+    if(error){toast?.('Error al guardar: '+error.message,'error');return}
+    toast?.('✅ Perfil actualizado');
+    onSaved({...profile,...form});
+  };
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.55)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}
+      onClick={e=>{if(e.target===e.currentTarget)onClose()}}>
+      <div className="card fade-up" style={{maxWidth:480,width:'100%',maxHeight:'88vh',overflowY:'auto',padding:0}}>
+        <div style={{background:'linear-gradient(135deg,#EA580C,#F97316)',padding:'22px 28px',position:'sticky',top:0}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+            <h2 style={{color:'#fff',fontWeight:800,fontSize:19}}>✏️ Editar perfil</h2>
+            <button onClick={onClose} style={{color:'rgba(255,255,255,.85)',fontSize:22,lineHeight:1,padding:4}}>×</button>
+          </div>
+          <p style={{color:'rgba(255,255,255,.85)',fontSize:13,marginTop:4}}>Mejora tu credibilidad ante otros usuarios</p>
+        </div>
+
+        <div style={{padding:28}}>
+          <Field label="Foto de perfil">
+            <div style={{display:'flex',gap:12,alignItems:'center'}}>
+              {form.photo_url
+                ? <img src={form.photo_url} alt="preview" style={{width:56,height:56,borderRadius:'50%',objectFit:'cover',border:'2px solid #E5E7EB'}}/>
+                : <div style={{width:56,height:56,borderRadius:'50%',background:'#F3F4F6',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><Camera size={22} color="#9CA3AF"/></div>
+              }
+              <label className="btn-outline" style={{cursor:uploading?'wait':'pointer',fontSize:13}}>
+                {uploading?'⏳ Subiendo...':'📷 Subir foto'}
+                <input type="file" accept="image/*" onChange={handleFileChange} disabled={uploading} style={{display:'none'}}/>
+              </label>
+            </div>
+            <p style={{fontSize:11,color:'#9CA3AF',marginTop:6}}>JPG o PNG, máximo 3MB</p>
+          </Field>
+
+          <Field label={`Bio corta (${form.bio.length}/280)`}>
+            <textarea className="inp" placeholder="Cuéntales a los demás un poco sobre ti..." value={form.bio} onChange={e=>set('bio',e.target.value.slice(0,280))} rows={3} style={{resize:'none'}}/>
+          </Field>
+
+          <Field label="LinkedIn (opcional)" error={err.includes('LinkedIn')?err:''}>
+            <div style={{position:'relative'}}>
+              <Link2 size={16} color="#0A66C2" style={{position:'absolute',left:14,top:'50%',transform:'translateY(-50%)'}}/>
+              <input className={`inp ${err.includes('LinkedIn')?'inp-err':''}`} style={{paddingLeft:38}} placeholder="https://linkedin.com/in/tu-nombre" value={form.linkedin_url} onChange={e=>set('linkedin_url',e.target.value)}/>
+            </div>
+          </Field>
+
+          {isWorker&&(
+            <Field label="Categorías favoritas">
+              <p style={{fontSize:12,color:'#9CA3AF',marginBottom:10,marginTop:-4}}>Elige en qué te gustaría trabajar más seguido. Te mostraremos primero esos cachuelos.</p>
+              <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
+                {Object.entries(CAT).map(([k,v])=>{
+                  const Icon=CAT_ICONS[v.icon]||Tag;
+                  const active=form.skills.includes(k);
+                  return(
+                    <button key={k} type="button" onClick={()=>toggleSkill(k)}
+                      style={{display:'inline-flex',alignItems:'center',gap:6,padding:'7px 14px',borderRadius:20,fontSize:13,fontWeight:700,border:`1.5px solid ${active?'#EA580C':'#E5E7EB'}`,background:active?'#FFF7ED':'#fff',color:active?'#EA580C':'#6B7280',cursor:'pointer'}}>
+                      <Icon size={13}/>{v.label}{active&&<CheckCircle size={13}/>}
+                    </button>
+                  );
+                })}
+              </div>
+            </Field>
+          )}
+
+          {err&&!err.includes('LinkedIn')&&<div style={{background:'#FEF2F2',border:'1.5px solid #FCA5A5',borderRadius:12,padding:'10px 14px',marginBottom:16,fontSize:13,color:'#DC2626',fontWeight:600}}>⚠ {err}</div>}
+
+          <div style={{display:'flex',gap:10,marginTop:8}}>
+            <button className="btn-ghost" style={{flex:1,justifyContent:'center',border:'1.5px solid #E5E7EB',borderRadius:14}} onClick={onClose}>Cancelar</button>
+            <button className="btn-orange" style={{flex:1,justifyContent:'center'}} onClick={handleSave} disabled={saving}>
+              {saving?'⏳ Guardando...':(<><Save size={15}/> Guardar</>)}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+function ProfilePage({currentProfile,pid,nav,back,toast}){
   const[profile,setProfile]=useState(null);
   const[jobs,setJobs]=useState([]);
   const[reviews,setReviews]=useState([]);
   const[loading,setLoading]=useState(true);
+  const[showEdit,setShowEdit]=useState(false);
   const targetId=pid||currentProfile?.id;
   const isOwn=targetId===currentProfile?.id;
-  useEffect(()=>{(async()=>{setLoading(true);const[{data:p},{data:j},{data:r}]=await Promise.all([sb.from('profiles').select('*').eq('id',targetId).single(),sb.from('jobs').select('*').or(`poster_id.eq.${targetId},worker_id.eq.${targetId}`).order('created_at',{ascending:false}),sb.from('reviews').select('*').eq('reviewed_id',targetId).order('created_at',{ascending:false})]);setProfile(p);setJobs(j||[]);setReviews(r||[]);setLoading(false);})();},[targetId]);
+
+  const fetchAll=async()=>{
+    setLoading(true);
+    const[{data:p},{data:j},{data:r}]=await Promise.all([
+      sb.from('profiles').select('*').eq('id',targetId).single(),
+      sb.from('jobs').select('*').or(`poster_id.eq.${targetId},worker_id.eq.${targetId}`).order('created_at',{ascending:false}),
+      sb.from('reviews').select('*').eq('reviewed_id',targetId).order('created_at',{ascending:false}),
+    ]);
+    setProfile(p);setJobs(j||[]);setReviews(r||[]);setLoading(false);
+  };
+
+  useEffect(()=>{fetchAll();},[targetId]);
+
   if(loading)return<Spin/>;
   if(!profile)return<div style={{textAlign:'center',padding:80}}><p style={{color:'#9CA3AF'}}>Perfil no encontrado</p><button className="btn-ghost" onClick={back}>← Volver</button></div>;
+
   const posted=jobs.filter(j=>j.poster_id===targetId);
   const worked=jobs.filter(j=>j.worker_id===targetId&&j.status==='completed');
   const avg=reviews.length?reviews.reduce((s,r)=>s+r.rating,0)/reviews.length:0;
   const earn=worked.reduce((s,j)=>s+(j.worker_earnings||0),0);
   const catCnt=worked.reduce((a,j)=>{if(j.category)a[j.category]=(a[j.category]||0)+1;return a},{});
   const topCats=Object.entries(catCnt).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([c])=>c);
+
   return(
     <div className="fade-up" style={{maxWidth:700,margin:'0 auto'}}>
       <button className="btn-ghost" style={{marginBottom:20,paddingLeft:0,display:'flex',alignItems:'center',gap:6}} onClick={back}>← Volver</button>
+
+      {showEdit&&<EditProfileModal
+        profile={profile}
+        onClose={()=>setShowEdit(false)}
+        onSaved={()=>{setShowEdit(false);fetchAll();}}
+        toast={toast}
+      />}
+
       <div className="card" style={{overflow:'hidden',marginBottom:16}}>
         <div style={{height:90,background:'linear-gradient(135deg,#EA580C,#F97316,#FCD34D)'}}/>
         <div style={{padding:'0 28px 24px',textAlign:'left'}}>
           <div style={{display:'flex',alignItems:'flex-end',justifyContent:'space-between',marginTop:-34,marginBottom:20,flexWrap:'wrap',gap:12}}>
-            <div style={{width:68,height:68,borderRadius:18,background:'#EA580C',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700,fontSize:26,border:'4px solid #fff',boxShadow:'0 4px 16px rgba(234,88,12,.3)'}}>{(profile.full_name||'?').split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase()}</div>
+            {profile.photo_url
+              ? <img src={profile.photo_url} alt={profile.full_name} style={{width:68,height:68,borderRadius:18,objectFit:'cover',border:'4px solid #fff',boxShadow:'0 4px 16px rgba(234,88,12,.3)'}}/>
+              : <div style={{width:68,height:68,borderRadius:18,background:'#EA580C',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700,fontSize:26,border:'4px solid #fff',boxShadow:'0 4px 16px rgba(234,88,12,.3)'}}>{(profile.full_name||'?').split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase()}</div>
+            }
             <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
               <VerifiedBadge status={profile.verification_status}/>
               {isOwn&&<span style={{background:'#FFF7ED',color:'#EA580C',border:'1.5px solid #FDBA74',padding:'4px 12px',borderRadius:20,fontSize:11,fontWeight:600}}>Tu perfil</span>}
@@ -1783,7 +2285,30 @@ function ProfilePage({currentProfile,pid,nav,back}){
           <h1 style={{fontWeight:700,fontSize:22,marginBottom:2,color:'#111827',letterSpacing:'-0.5px'}}>{profile.full_name||'Usuario'}</h1>
           <p style={{color:'#9CA3AF',fontSize:13,marginBottom:4}}>{profile.email}</p>
           {profile.role&&<p style={{fontSize:12,color:'#6B7280',marginBottom:8,display:'flex',alignItems:'center',gap:4}}><User size={12}/>{profile.role==='trabajador'?'Trabajador':'Empleador'}</p>}
+
+          {profile.bio&&<p style={{fontSize:13,color:'#374151',lineHeight:1.6,marginTop:10,marginBottom:4,maxWidth:520}}>{profile.bio}</p>}
+
+          {profile.linkedin_url&&(
+            <a href={profile.linkedin_url} target="_blank" rel="noopener noreferrer"
+              style={{display:'inline-flex',alignItems:'center',gap:6,marginTop:10,color:'#0A66C2',fontSize:13,fontWeight:700,textDecoration:'none',background:'#EFF6FF',border:'1.5px solid #BFDBFE',borderRadius:20,padding:'5px 14px'}}>
+              <Link2 size={14}/> Ver LinkedIn
+            </a>
+          )}
+
           {topCats.length>0&&<div style={{display:'flex',gap:6,marginTop:12,flexWrap:'wrap'}}>{topCats.map(c=><CatTag key={c} cat={c}/>)}</div>}
+
+          {profile.role==='trabajador'&&profile.skills?.length>0&&(
+            <div style={{marginTop:14}}>
+              <div style={{fontSize:11,color:'#9CA3AF',fontWeight:700,textTransform:'uppercase',letterSpacing:'.5px',marginBottom:8}}>Categorías favoritas</div>
+              <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>{profile.skills.map(c=><CatTag key={c} cat={c}/>)}</div>
+            </div>
+          )}
+
+          {isOwn&&(
+            <button className="btn-outline" style={{marginTop:16,fontSize:13}} onClick={()=>setShowEdit(true)}>
+              <Edit3 size={14}/> Editar perfil
+            </button>
+          )}
         </div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',borderTop:'1.5px solid #F0F1F3'}}>
           {[
@@ -1824,8 +2349,175 @@ function ProfilePage({currentProfile,pid,nav,back}){
     </div>
   );
 }
+function DisputeModal({job, profile, onClose, toast}){
+  const[cat,setCat]=useState('');
+  const[desc,setDesc]=useState('');
+  const[sending,setSending]=useState(false);
 
+  const accusedId = profile.id===job.poster_id ? job.worker_id : job.poster_id;
+  const accusedName = profile.id===job.poster_id ? job.worker_name : job.poster_name;
+
+  const submit=async()=>{
+    if(!cat){toast('Selecciona una categoría','error');return}
+    if(!desc.trim()){toast('Describe el problema','error');return}
+    setSending(true);
+    const{error}=await sb.from('disputes').insert({
+      job_id:job.id,
+      reporter_id:profile.id,
+      reporter_name:profile.full_name,
+      accused_id:accusedId,
+      accused_name:accusedName,
+      category:cat,
+      description:desc.trim(),
+      status:'pending',
+    });
+    setSending(false);
+    if(error){toast('Error al enviar: '+error.message,'error');return}
+    toast('⚠ Reporte enviado, lo revisaremos pronto');
+    onClose();
+  };
+
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.6)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}
+      onClick={e=>{if(e.target===e.currentTarget)onClose()}}>
+      <div className="card fade-up" style={{maxWidth:440,width:'100%',overflow:'hidden'}}>
+        <div style={{background:'linear-gradient(135deg,#DC2626,#EF4444)',padding:'22px 28px'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+            <h2 style={{color:'#fff',fontWeight:800,fontSize:19}}>⚠ Reportar problema</h2>
+            <button onClick={onClose} style={{color:'rgba(255,255,255,.8)',fontSize:22}}>×</button>
+          </div>
+          <p style={{color:'rgba(255,255,255,.8)',fontSize:13,marginTop:4}}>Contra: {accusedName||'—'}</p>
+        </div>
+        <div style={{padding:28}}>
+          <Field label="Categoría *">
+            <select className="inp" value={cat} onChange={e=>setCat(e.target.value)}>
+              <option value="">Seleccionar...</option>
+              <option value="pago">💰 Problema de pago</option>
+              <option value="comportamiento">😤 Mal comportamiento</option>
+              <option value="calidad">⭐ Calidad del trabajo</option>
+              <option value="cancelacion_injusta">🚫 Cancelación injusta</option>
+              <option value="otro">✨ Otro</option>
+            </select>
+          </Field>
+          <Field label="Descripción *">
+            <textarea className="inp" placeholder="Describe qué pasó con detalle..." value={desc} onChange={e=>setDesc(e.target.value)} rows={4} style={{resize:'none'}}/>
+          </Field>
+          <div style={{display:'flex',gap:10}}>
+            <button className="btn-ghost" style={{flex:1,justifyContent:'center',border:'1.5px solid #E5E7EB',borderRadius:14}} onClick={onClose}>Cancelar</button>
+            <button className="btn-red" style={{flex:1,justifyContent:'center'}} onClick={submit} disabled={sending}>
+              {sending?'⏳ Enviando...':'⚠ Enviar reporte'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 // ─── ROOT ─────────────────────────────────────────────────────────────────────
+  function AdminPage({profile, back, toast}){
+  const[pending,setPending]=useState([]);
+  const[loading,setLoading]=useState(true);
+  const[disputes,setDisputes]=useState([]);
+  const[tab,setTab]=useState('verif');
+
+  useEffect(()=>{
+    sb.from('disputes').select('*').eq('status','pending').order('created_at',{ascending:false}).then(({data})=>setDisputes(data||[]));
+    sb.from('profiles').select('*').eq('verification_status','reviewing').then(({data})=>{
+      setPending(data||[]);setLoading(false);
+    });
+  },[]);
+
+  const decide=async(uid, status)=>{
+  const{error}=await sb.from('profiles').update({verification_status:status}).eq('id',uid);
+  if(error){toast('Error: '+error.message,'error');return;}
+  setPending(p=>p.filter(u=>u.id!==uid));
+  toast(status==='verified'?'✅ Aprobado':'❌ Rechazado');
+};
+
+  if(profile?.id!==ADMIN_ID) return(
+    <div style={{textAlign:'center',padding:80}}>
+      <p style={{color:'#9CA3AF',fontWeight:600}}>Acceso denegado</p>
+      <button className="btn-ghost" onClick={back}>← Volver</button>
+    </div>
+  );
+
+return(
+    <div className="fade-up" style={{maxWidth:800,margin:'0 auto'}}>
+      <button className="btn-ghost" style={{marginBottom:20,paddingLeft:0}} onClick={back}>← Volver</button>
+      <h1 style={{fontWeight:700,fontSize:28,marginBottom:4,letterSpacing:'-0.5px'}}>🛡 Panel de verificación</h1>
+      <p style={{color:'#6B7280',fontSize:15,marginBottom:16}}>{pending.length} perfil{pending.length!==1?'es':''} en revisión</p>
+      <div style={{display:'flex',background:'#F3F4F6',borderRadius:16,padding:4,width:'fit-content',marginBottom:24}}>
+        {[['verif',`🛡 Verificaciones (${pending.length})`],['disputes',`⚠ Disputas (${disputes.length})`]].map(([k,l])=>(
+          <button key={k} onClick={()=>setTab(k)} style={{padding:'8px 20px',borderRadius:12,fontWeight:700,fontSize:13,background:tab===k?'#fff':'transparent',color:tab===k?'#EA580C':'#6B7280',boxShadow:tab===k?'0 1px 4px rgba(0,0,0,.08)':'none',border:'none',cursor:'pointer'}}>{l}</button>
+        ))}
+      </div>
+      {tab==='verif'&&(loading?<Spin/>:pending.length===0?(
+        <div style={{textAlign:'center',padding:60,color:'#9CA3AF'}}>
+          <div style={{fontSize:48,marginBottom:12}}>✅</div>
+          <p style={{fontWeight:600}}>No hay perfiles pendientes</p>
+        </div>
+      ):(
+        <div style={{display:'flex',flexDirection:'column',gap:16}}>
+          {pending.map(u=>(
+            <div key={u.id} className="card" style={{padding:24}}>
+              <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:16}}>
+                {u.photo_url?<img src={u.photo_url} alt="" style={{width:48,height:48,borderRadius:'50%',objectFit:'cover'}}/>:<Avatar name={u.full_name} size={48}/>}
+                <div>
+                  <div style={{fontWeight:700,fontSize:16}}>{u.full_name}</div>
+                  <div style={{fontSize:13,color:'#6B7280'}}>{u.email} · {u.role}</div>
+                  <div style={{fontSize:12,color:'#9CA3AF'}}>DNI: {u.dni}</div>
+                </div>
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:16}}>
+                {u.dni_photo_url?(
+                  <div style={{borderRadius:12,overflow:'hidden',border:'1.5px solid #E5E7EB'}}>
+                    <img src={u.dni_photo_url} alt="DNI" style={{width:'100%',height:140,objectFit:'cover'}}/>
+                    <p style={{fontSize:11,color:'#6B7280',textAlign:'center',padding:6,background:'#F9FAFB'}}>📄 DNI</p>
+                  </div>
+                ):<div style={{borderRadius:12,border:'1.5px dashed #E5E7EB',height:160,display:'flex',alignItems:'center',justifyContent:'center',color:'#9CA3AF',fontSize:13}}>Sin DNI</div>}
+                {u.selfie_photo_url?(
+                  <div style={{borderRadius:12,overflow:'hidden',border:'1.5px solid #E5E7EB'}}>
+                    <img src={u.selfie_photo_url} alt="Selfie" style={{width:'100%',height:140,objectFit:'cover'}}/>
+                    <p style={{fontSize:11,color:'#6B7280',textAlign:'center',padding:6,background:'#F9FAFB'}}>🤳 Selfie</p>
+                  </div>
+                ):<div style={{borderRadius:12,border:'1.5px dashed #E5E7EB',height:160,display:'flex',alignItems:'center',justifyContent:'center',color:'#9CA3AF',fontSize:13}}>Sin selfie</div>}
+              </div>
+              <div style={{display:'flex',gap:10}}>
+                <button className="btn-green" style={{flex:1,justifyContent:'center'}} onClick={()=>decide(u.id,'verified')}>✅ Aprobar</button>
+                <button className="btn-red" style={{flex:1,justifyContent:'center'}} onClick={()=>decide(u.id,'rejected')}>❌ Rechazar</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ))}
+      {tab==='disputes'&&(disputes.length===0?(
+        <div style={{textAlign:'center',padding:60,color:'#9CA3AF'}}>
+          <div style={{fontSize:48,marginBottom:12}}>✅</div>
+          <p style={{fontWeight:600}}>No hay disputas pendientes</p>
+        </div>
+      ):(
+        <div style={{display:'flex',flexDirection:'column',gap:16}}>
+          {disputes.map(d=>(
+            <div key={d.id} className="card" style={{padding:24}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:12}}>
+                <div>
+                  <div style={{fontWeight:700,fontSize:15,color:'#DC2626'}}>⚠ {d.category?.replace('_',' ')}</div>
+                  <div style={{fontSize:13,color:'#6B7280',marginTop:2}}>Reportado por: <strong>{d.reporter_name}</strong> contra <strong>{d.accused_name}</strong></div>
+                </div>
+                <span style={{fontSize:11,color:'#9CA3AF'}}>{fmtDate(d.created_at)}</span>
+              </div>
+              <p style={{fontSize:13,color:'#374151',lineHeight:1.6,marginBottom:16,background:'#F9FAFB',borderRadius:12,padding:12}}>{d.description}</p>
+              <div style={{display:'flex',gap:10}}>
+                <button className="btn-green" style={{flex:1,justifyContent:'center'}} onClick={async()=>{await sb.from('disputes').update({status:'resolved'}).eq('id',d.id);setDisputes(p=>p.filter(x=>x.id!==d.id));toast('✅ Disputa resuelta');}}>✅ Resolver</button>
+                <button className="btn-ghost" style={{flex:1,justifyContent:'center',border:'1.5px solid #E5E7EB'}} onClick={async()=>{await sb.from('disputes').update({status:'dismissed'}).eq('id',d.id);setDisputes(p=>p.filter(x=>x.id!==d.id));toast('🚫 Disputa desestimada');}}>🚫 Desestimar</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
 export default function App(){
   const[authUser,setAuthUser]=useState(null);
   const[profile,setProfile]=useState(null);
@@ -1834,6 +2526,7 @@ export default function App(){
   const[history,setHistory]=useState([]);
   const[jid,setJid]=useState(null);
   const[pid,setPid]=useState(null);
+  const[showVerif,setShowVerif]=useState(false);
   const[toastData,setToastData]=useState(null);
 
   const toast=useCallback((msg,type='success')=>{setToastData({msg,type});setTimeout(()=>setToastData(null),3000);},[]);
@@ -1861,7 +2554,6 @@ export default function App(){
     setPage(prev.page);setJid(prev.jid);setPid(prev.pid);
     window.scrollTo({top:0,behavior:'smooth'});
   };
-
   if(authLoading)return<><style dangerouslySetInnerHTML={{__html:G}}/><Spin/></>;
   if(!authUser)return<><style dangerouslySetInnerHTML={{__html:G}}/><AuthScreen onAuth={u=>{setAuthUser(u);fetchProfile(u.id)}}/></>;
 
@@ -1871,12 +2563,13 @@ export default function App(){
       <div style={{minHeight:'100vh',background:'#F7F8FA',width:'100%'}}>
         <Navbar page={page} nav={nav} profile={profile} onSignOut={signOut}/>
         <main style={{padding:'28px 32px'}}>
-          {page==='home'     &&<HomePage     profile={profile} nav={nav} toast={toast}/>}
-          {page==='map'      &&<MapPage      nav={nav}/>}
+{page==='home'&&<HomePage profile={profile} nav={nav} toast={toast} onStartVerification={()=>setShowVerif(true)}/>}          {page==='map'      &&<MapPage      nav={nav}/>}
           {page==='job'      &&<JobDetailPage profile={profile} jid={jid} nav={nav} back={back} toast={toast}/>}
           {page==='post-job' &&<PostJobPage  profile={profile} nav={nav} back={back} toast={toast}/>}
           {page==='my-jobs'  &&<MyJobsPage   profile={profile} nav={nav}/>}
-          {page==='profile'  &&<ProfilePage  currentProfile={profile} pid={pid} nav={nav} back={back}/>}
+          {page==='profile' && <ProfilePage currentProfile={profile} pid={pid} nav={nav} back={back} toast={toast}/>}
+          {page==='admin'&&<AdminPage profile={profile} back={back} toast={toast}/>}
+          {showVerif&&<VerificationModal profile={profile} onClose={()=>setShowVerif(false)} onDone={()=>{setShowVerif(false);fetchProfile(authUser.id);}} toast={toast}/>}
         </main>
       </div>
       <SocialProofNotif/>
