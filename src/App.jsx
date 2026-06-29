@@ -5,7 +5,7 @@ import { TrendingUp, Sparkles, Briefcase, CheckCircle, LayoutGrid, Users, Shield
 // ─── SUPABASE ─────────────────────────────────────────────────────────────────
 const SUPA_URL = 'https://nhnrvycafvmmvnpmkuop.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5obnJ2eWNhZnZtbXZucG1rdW9wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc1NzkyNzIsImV4cCI6MjA5MzE1NTI3Mn0.8XvbZfYYbfmL2MOv3BkkgzyySuMnsVYC5dviZkszRJQ';
-const sb = createClient(SUPA_URL, SUPA_KEY);const ADMIN_ID = '012c58ca-d03a-4a67-86c0-de1a69c805d7';
+const sb = createClient(SUPA_URL, SUPA_KEY);const ADMIN_ID = 'b849a004-9f55-444f-863e-d73206e06b23';
 
 // ─── ESTILOS ──────────────────────────────────────────────────────────────────
 const G = `
@@ -310,7 +310,7 @@ function MercadoSection({jobs}){
   const avgPrice=jobs.length?Math.round(jobs.reduce((s,j)=>s+(j.price||0),0)/jobs.length):0;
   const maxCount=topDistricts[0]?.[1]||1;
   return(
-    <div style={{marginBottom:28}}>
+    <div data-tour="emp-mercado" style={{marginBottom:28}}>
       <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:16}}>
         <div style={{background:'linear-gradient(135deg,#EA580C,#F97316)',borderRadius:10,padding:8,display:'flex',alignItems:'center',justifyContent:'center'}}><BarChart2 size={18} color="#fff"/></div>
         <div><h2 style={{fontWeight:700,fontSize:17,color:'#111827'}}>Mercado de Lima esta semana</h2><p style={{fontSize:12,color:'#9CA3AF'}}>Datos reales de cachuelos publicados</p></div>
@@ -609,6 +609,44 @@ function LocationPicker({initialCenter, value, onChange}){
   );
 }
 
+// ─── LIVENESS (prueba de vida para la selfie) ──────────────────────────────────
+const LIVE_STEPS = [
+  {label:'Cara al frente',      hint:'Mira directo a la cámara',           check:p=>Math.abs(p.yaw)<14 && Math.abs(p.pitch)<14},
+  {label:'Gira a la izquierda', hint:'Mueve la cabeza hacia la izquierda', check:p=>p.yaw<-14},
+  {label:'Gira a la derecha',   hint:'Mueve la cabeza hacia la derecha',   check:p=>p.yaw>14},
+  {label:'Mira hacia arriba',   hint:'Inclina la cabeza hacia arriba',     check:p=>p.pitch<-11},
+  {label:'Mira hacia abajo',    hint:'Inclina la cabeza hacia abajo',      check:p=>p.pitch>11},
+];
+const LIVE_HOLD_NEEDED = 6;
+const FACE_MODELS_URL = 'https://justadudewhohacks.github.io/face-api.js/models';
+let faceApiModelsLoaded = false;
+
+function estimateFacePose(positions){
+  // Usa puntos fijos del rostro (ojos, mentón, entrecejo) en vez del recuadro
+  // de detección, que tiembla y cambia de tamaño al girar la cabeza.
+  const eyeL=positions[36], eyeR=positions[45];
+  const jaw=positions[8];
+  const noseTip=positions[30];
+  const browMid={x:(positions[21].x+positions[22].x)/2,y:(positions[21].y+positions[22].y)/2};
+  const eyeVecX=eyeR.x-eyeL.x, eyeVecY=eyeR.y-eyeL.y;
+  const eyeLenSq=eyeVecX*eyeVecX+eyeVecY*eyeVecY;
+  const t=((noseTip.x-eyeL.x)*eyeVecX+(noseTip.y-eyeL.y)*eyeVecY)/eyeLenSq;
+  const yaw=(t-0.5)*220;
+  const eyeLevelY=(eyeL.y+eyeR.y)/2;
+  const pitchRatio=(noseTip.y-browMid.y)/(jaw.y-eyeLevelY);
+  const pitch=(pitchRatio-0.42)*220;
+  return{yaw,pitch};
+}
+
+async function loadFaceApiModels(){
+  if(faceApiModelsLoaded) return;
+  await Promise.all([
+    window.faceapi.nets.tinyFaceDetector.loadFromUri(FACE_MODELS_URL),
+    window.faceapi.nets.faceLandmark68TinyNet.loadFromUri(FACE_MODELS_URL),
+  ]);
+  faceApiModelsLoaded = true;
+}
+
 // ─── AUTH ─────────────────────────────────────────────────────────────────────
 function VerificationModal({profile, onClose, onDone, toast}){
   const[step,setStep]=useState('dni'); // 'dni' | 'selfie' | 'done'
@@ -616,7 +654,15 @@ function VerificationModal({profile, onClose, onDone, toast}){
   const[selfieUrl,setSelfieUrl]=useState('');
   const[uploading,setUploading]=useState(false);
   const videoRef=useRef(null);
+  const overlayRef=useRef(null);
   const[stream,setStream]=useState(null);
+
+  const[liveStepIdx,setLiveStepIdx]=useState(-1); // -1 = prueba de vida no iniciada
+  const[liveMsg,setLiveMsg]=useState('');
+  const liveStepRef=useRef(-1);
+  const liveHoldRef=useRef(0);
+  const livenessActiveRef=useRef(false);
+  const frontBlobRef=useRef(null);
 
   const startCamera=async()=>{
     try{
@@ -626,28 +672,116 @@ function VerificationModal({profile, onClose, onDone, toast}){
     }catch(e){toast('No se pudo acceder a la cámara','error');}
   };
   const stopCamera=()=>{
+    livenessActiveRef.current=false;
     stream?.getTracks().forEach(t=>t.stop());
     setStream(null);
   };
   useEffect(()=>()=>stopCamera(),[]);
 
-  const capture=async(type)=>{
+  const uploadBlob=async(type,blob)=>{
+    setUploading(true);
+    const path=`${profile.id}/${type}.jpg`;
+    const{error}=await sb.storage.from('verification-docs').upload(path,blob,{upsert:true,contentType:'image/jpeg'});
+    if(error){toast('Error al subir imagen','error');setUploading(false);return;}
+    const{data}=await sb.storage.from('verification-docs').createSignedUrl(path,60*60*24*7); // válido 7 días
+    stopCamera();
+    if(type==='dni'){setDniUrl(data.signedUrl);setStep('selfie');}
+    else{setSelfieUrl(data.signedUrl);setStep('done');}
+    setUploading(false);
+  };
+
+  const capture=(type)=>{
     if(!videoRef.current) return;
     const canvas=document.createElement('canvas');
     canvas.width=videoRef.current.videoWidth;
     canvas.height=videoRef.current.videoHeight;
     canvas.getContext('2d').drawImage(videoRef.current,0,0);
-    canvas.toBlob(async(blob)=>{
-      setUploading(true);
-      const path=`${profile.id}/${type}.jpg`;
-      const{error}=await sb.storage.from('verification-docs').upload(path,blob,{upsert:true,contentType:'image/jpeg'});
-      if(error){toast('Error al subir imagen','error');setUploading(false);return;}
-const{data}=await sb.storage.from('verification-docs').createSignedUrl(path,60*60*24*7); // válido 7 días
-       stopCamera();
-      if(type==='dni'){setDniUrl(data.signedUrl);setStep('selfie');}
-      else{setSelfieUrl(data.signedUrl);setStep('done');}
-      setUploading(false);
-    },'image/jpeg',0.85);
+    canvas.toBlob(blob=>uploadBlob(type,blob),'image/jpeg',0.85);
+  };
+
+  // Prueba de vida: arranca sola cuando la cámara está activa en el paso selfie
+  useEffect(()=>{
+    if(step!=='selfie'||!stream) return;
+    let cancelled=false;
+    livenessActiveRef.current=true;
+    liveStepRef.current=0;
+    liveHoldRef.current=0;
+    frontBlobRef.current=null;
+    setLiveStepIdx(0);
+    setLiveMsg('Cargando verificación facial...');
+
+    (async()=>{
+      try{
+        if(!window.faceapi) throw new Error('face-api no cargó');
+        await loadFaceApiModels();
+      }catch(e){
+        if(!cancelled) setLiveMsg('No se pudo cargar la verificación facial. Usa "Subir archivo" si no avanza.');
+        return;
+      }
+      if(!cancelled) runLivenessLoop();
+    })();
+
+    return()=>{ cancelled=true; livenessActiveRef.current=false; };
+  },[step,stream]);
+
+  const runLivenessLoop=async()=>{
+    if(!livenessActiveRef.current) return;
+    const video=videoRef.current;
+    if(!video||video.videoWidth===0){ setTimeout(runLivenessLoop,150); return; }
+    const overlay=overlayRef.current;
+    if(overlay){ overlay.width=video.videoWidth; overlay.height=video.videoHeight; }
+
+    const opts=new window.faceapi.TinyFaceDetectorOptions({inputSize:416,scoreThreshold:0.3});
+    let result;
+    try{ result=await window.faceapi.detectSingleFace(video,opts).withFaceLandmarks(true); }
+    catch(e){ result=null; }
+
+    if(!livenessActiveRef.current) return;
+    const ctx=overlay?.getContext('2d');
+    if(ctx) ctx.clearRect(0,0,overlay.width,overlay.height);
+
+    if(!result){
+      liveHoldRef.current=0;
+      setLiveMsg('No detecto tu cara — acércate y mejora la iluminación 👀');
+      setTimeout(runLivenessLoop,80);
+      return;
+    }
+
+    const box=result.detection.box;
+    if(ctx){ ctx.strokeStyle='#EA580C'; ctx.lineWidth=2; ctx.strokeRect(box.x,box.y,box.width,box.height); }
+
+    const pose=estimateFacePose(result.landmarks.positions);
+    const idx=liveStepRef.current;
+    const liveStep=LIVE_STEPS[idx];
+
+    if(liveStep.check(pose)){
+      liveHoldRef.current++;
+      setLiveMsg('✓ Mantén la posición...');
+      if(ctx){ ctx.strokeStyle='#16A34A'; ctx.lineWidth=2; ctx.strokeRect(box.x,box.y,box.width,box.height); }
+
+      if(liveHoldRef.current>=LIVE_HOLD_NEEDED){
+        if(idx===0){
+          const canvas=document.createElement('canvas');
+          canvas.width=video.videoWidth; canvas.height=video.videoHeight;
+          canvas.getContext('2d').drawImage(video,0,0);
+          canvas.toBlob(blob=>{ frontBlobRef.current=blob; },'image/jpeg',0.85);
+        }
+        liveHoldRef.current=0;
+        const next=idx+1;
+        liveStepRef.current=next;
+        setLiveStepIdx(next);
+        if(next>=LIVE_STEPS.length){
+          livenessActiveRef.current=false;
+          if(frontBlobRef.current) uploadBlob('selfie',frontBlobRef.current);
+          else capture('selfie');
+          return;
+        }
+      }
+    } else {
+      liveHoldRef.current=Math.max(0,liveHoldRef.current-1);
+      setLiveMsg(liveStep.hint);
+    }
+    setTimeout(runLivenessLoop,80);
   };
 
   const uploadFile=async(e,type)=>{
@@ -675,7 +809,7 @@ const{data}=await sb.storage.from('verification-docs').createSignedUrl(path,60*6
     onDone();
   };
 
-  const stepLabel={'dni':'Foto del DNI','selfie':'Selfie tuya','done':'Listo'}[step];
+  const stepLabel={'dni':'Foto del DNI','selfie':'Prueba de vida','done':'Listo'}[step];
   return(
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.6)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={e=>{if(e.target===e.currentTarget){stopCamera();onClose();}}}>
       <div className="card fade-up" style={{maxWidth:440,width:'100%',overflow:'hidden'}}>
@@ -710,22 +844,33 @@ const{data}=await sb.storage.from('verification-docs').createSignedUrl(path,60*6
           ):(
             <div>
               <p style={{fontSize:14,color:'#374151',marginBottom:16,lineHeight:1.6}}>
-                {step==='dni'?'Toma una foto clara de la parte frontal de tu DNI. Asegúrate que sea legible.':'Mira a la cámara y toma una selfie. Asegúrate que tu cara esté bien iluminada.'}
+                {step==='dni'?'Toma una foto clara de la parte frontal de tu DNI. Asegúrate que sea legible.':'Sigue los movimientos de cabeza para confirmar que eres una persona real frente a la cámara.'}
               </p>
               {/* Preview de cámara */}
               <div style={{borderRadius:16,overflow:'hidden',background:'#F3F4F6',marginBottom:16,position:'relative',minHeight:200}}>
                 <video ref={videoRef} autoPlay playsInline muted style={{width:'100%',display:'block',borderRadius:16}}/>
+                {step==='selfie'&&stream&&<canvas ref={overlayRef} style={{position:'absolute',inset:0,width:'100%',height:'100%'}}/>}
                 {!stream&&<div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:8,color:'#9CA3AF'}}>
                   <Camera size={36}/>
                   <span style={{fontSize:13}}>Cámara no activa</span>
                 </div>}
+                {step==='selfie'&&stream&&<div style={{position:'absolute',bottom:0,left:0,right:0,background:'rgba(0,0,0,.75)',padding:'8px 12px'}}>
+                  <span style={{color:'#fff',fontSize:12,fontWeight:600}}>{liveMsg}</span>
+                </div>}
               </div>
+              {step==='selfie'&&stream&&(
+                <div style={{display:'flex',gap:6,marginBottom:16}}>
+                  {LIVE_STEPS.map((s,i)=>(
+                    <div key={s.label} title={s.label} style={{flex:1,height:6,borderRadius:3,background:i<liveStepIdx?'#16A34A':i===liveStepIdx?'#EA580C':'#E5E7EB'}}/>
+                  ))}
+                </div>
+              )}
               <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
                 {!stream?(
                   <button className="btn-blue" style={{flex:1,justifyContent:'center'}} onClick={startCamera}><Camera size={15}/>Activar cámara</button>
-                ):(
+                ):step==='dni'?(
                   <button className="btn-orange" style={{flex:1,justifyContent:'center'}} onClick={()=>capture(step)} disabled={uploading}>{uploading?'⏳ Procesando...':'📸 Capturar'}</button>
-                )}
+                ):null}
                 <label className="btn-outline" style={{flex:1,justifyContent:'center',cursor:'pointer'}}>
                   📁 Subir archivo
                   <input type="file" accept="image/*" style={{display:'none'}} onChange={e=>uploadFile(e,step)} disabled={uploading}/>
@@ -770,7 +915,7 @@ function VerificationBanner({status, onStartVerification}){
     </div>
   );
 }
-function AuthScreen({onAuth}){
+function AuthScreen({onAuth,reason,onClose}){
   const[mode,setMode]=useState('login');
   const[role,setRole]=useState('trabajador');
   const[step,setStep]=useState(1);
@@ -828,7 +973,7 @@ function AuthScreen({onAuth}){
 );  
   if(emailSent){
     return(
-      <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#FEF3E2',padding:20}}>
+      <div style={{position:'fixed',inset:0,zIndex:9999,overflowY:'auto',minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#FEF3E2',padding:20}}>
         <div style={{maxWidth:440,width:'100%',background:'#fff',borderRadius:32,boxShadow:'0 24px 64px rgba(234,88,12,.15)',overflow:'hidden',textAlign:'center'}}>
           <div style={{background:'linear-gradient(135deg,#EA580C,#F97316)',padding:'40px 32px'}}>
             <div style={{width:72,height:72,background:'rgba(255,255,255,.2)',borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 16px'}}>
@@ -867,8 +1012,12 @@ function AuthScreen({onAuth}){
   }
 
   return(
-    <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#FEF3E2',padding:'20px 20px 40px'}}>
-      <div style={{maxWidth:440,width:'100%',background:'#fff',borderRadius:32,boxShadow:'0 24px 64px rgba(234,88,12,.15)',overflow:'hidden'}}>
+    <div style={{position:'fixed',inset:0,zIndex:9999,overflowY:'auto',minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#FEF3E2',padding:'20px 20px 40px'}}>
+      <div style={{maxWidth:440,width:'100%',background:'#fff',borderRadius:32,boxShadow:'0 24px 64px rgba(234,88,12,.15)',overflow:'hidden',position:'relative'}}>
+        {onClose&&<button onClick={onClose} style={{position:'absolute',top:16,right:16,fontSize:22,color:'#9CA3AF',zIndex:10}}>×</button>}
+        {reason&&<div style={{margin:'20px 24px 0',background:'#FFF7ED',border:'1.5px solid #FDBA74',borderRadius:12,padding:'12px 16px',fontSize:13,color:'#92400E',fontWeight:600}}>
+          👋 {reason}
+        </div>}
 
         {/* HEADER — solo visible en login */}
         {!isRegister&&(
@@ -1009,7 +1158,7 @@ function AuthScreen({onAuth}){
 }
 
 // ─── NAVBAR ───────────────────────────────────────────────────────────────────
-function Navbar({page,nav,profile,onSignOut}){
+function Navbar({page,nav,profile,onSignOut,requireAuth,openAuth}){
   const isEmp=profile?.role==='empleador';
   return(
     <nav style={{background:'#fff',borderBottom:'1.5px solid #F0F1F3',position:'sticky',top:0,zIndex:200}}>
@@ -1025,25 +1174,33 @@ function Navbar({page,nav,profile,onSignOut}){
           <span style={{background:'#FFF7ED',color:'#EA580C',border:'1px solid #FDBA74',borderRadius:20,fontSize:11,fontWeight:700,padding:'2px 10px'}}>Lima</span>
         </button>
         <div style={{display:'flex',gap:2,alignItems:'center'}}>
-          <button className="btn-ghost hide-mobile" onClick={()=>nav('home')} style={{color:page==='home'?'#EA580C':'#6B7280',background:page==='home'?'#FFF7ED':'transparent',display:'flex',alignItems:'center',gap:6}}>
+          <button id="nav-home" data-tour="inicio" className="btn-ghost hide-mobile" onClick={()=>nav('home')} style={{color:page==='home'?'#EA580C':'#6B7280',background:page==='home'?'#FFF7ED':'transparent',display:'flex',alignItems:'center',gap:6}}>
             <Home size={16}/> Inicio
           </button>
           {!isEmp&&<button className="btn-ghost hide-mobile" onClick={()=>nav('map')} style={{display:'flex',alignItems:'center',gap:6}}>
             <Map size={16}/> Mapa
           </button>}
-          <button className="btn-ghost hide-mobile" onClick={()=>nav('my-jobs')} style={{color:page==='my-jobs'?'#EA580C':'#6B7280',display:'flex',alignItems:'center',gap:6}}>
-            <Briefcase size={16}/> Mis trabajos
-          </button>
-          <button className="btn-ghost hide-mobile" onClick={()=>nav('profile',{pid:null})} style={{display:'flex',alignItems:'center',gap:7,background:'#F9FAFB',border:'1.5px solid #E5E7EB',borderRadius:20,padding:'5px 12px 5px 6px'}}>
-            <Avatar name={profile?.full_name} size={26}/>
-            <span style={{fontSize:13,color:'#374151',fontWeight:600,maxWidth:90,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{profile?.full_name?.split(' ')[0]||'Perfil'}</span>
-            <ChevronDown size={14} color="#9CA3AF"/>
-          </button>
-          {isEmp&&<button className="btn-orange" onClick={()=>nav('post-job')} style={{fontSize:13,padding:'8px 16px',marginLeft:4}}>+ Publicar</button>}
-          {profile?.id===ADMIN_ID&&<button className="btn-ghost" onClick={()=>nav('admin')} style={{color:'#7C3AED',fontSize:13}}>🛡 Admin</button>}
-          <button className="btn-ghost" onClick={onSignOut} title="Salir" style={{color:'#9CA3AF'}}>
-            <LogOut size={16}/>
-          </button>
+          {!profile?(
+            <button className="btn-orange" onClick={()=>openAuth()} style={{fontSize:13,padding:'8px 18px'}}>
+              Iniciar sesión / Registrarse
+            </button>
+          ):(
+            <>
+              <button id="nav-jobs" data-tour="mis-trabajos" className="btn-ghost hide-mobile" onClick={()=>{if(!requireAuth('ver tus trabajos'))return;nav('my-jobs')}} style={{color:page==='my-jobs'?'#EA580C':'#6B7280',display:'flex',alignItems:'center',gap:6}}>
+                <Briefcase size={16}/> Mis trabajos
+              </button>
+              <button className="btn-ghost hide-mobile" onClick={()=>{if(!requireAuth('ver tu perfil'))return;nav('profile',{pid:null})}} style={{display:'flex',alignItems:'center',gap:7,background:'#F9FAFB',border:'1.5px solid #E5E7EB',borderRadius:20,padding:'5px 12px 5px 6px'}}>
+                <Avatar name={profile?.full_name} size={26}/>
+                <span style={{fontSize:13,color:'#374151',fontWeight:600,maxWidth:90,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{profile?.full_name?.split(' ')[0]||'Perfil'}</span>
+                <ChevronDown size={14} color="#9CA3AF"/>
+              </button>
+              {isEmp&&<button className="btn-orange" onClick={()=>{if(!requireAuth('publicar trabajos'))return;nav('post-job')}} style={{fontSize:13,padding:'8px 16px',marginLeft:4}}>+ Publicar</button>}
+              {profile?.id===ADMIN_ID&&<button className="btn-ghost" onClick={()=>nav('admin')} style={{color:'#7C3AED',fontSize:13}}>🛡 Admin</button>}
+              <button className="btn-ghost" onClick={onSignOut} title="Salir" style={{color:'#9CA3AF'}}>
+                <LogOut size={16}/>
+              </button>
+            </>
+          )}
         </div>
       </div>
     </nav>
@@ -1112,7 +1269,7 @@ function RecommendedSection({jobs, prefs, nav}){
 }
 
 // ─── HOME ─────────────────────────────────────────────────────────────────────
-function HomePage({profile,nav,toast,onStartVerification}){
+function HomePage({profile,nav,toast,onStartVerification,requireAuth}){
   const[jobs,setJobs]=useState([]);
   const[allJobs,setAllJobs]=useState([]);
   const[myCompletedJobs,setMyCompletedJobs]=useState([]);
@@ -1131,10 +1288,6 @@ function HomePage({profile,nav,toast,onStartVerification}){
   else setShowBanner(false);
   },[profile]);
   const isEmp=profile?.role==='empleador';
-
-useEffect(()=>{
-  if(profile?.verification_status==='verified') setShowBanner(true);
-},[profile?.verification_status]);
   useEffect(()=>{
     fetchJobs();
     loadLeaflet(()=>setLeafOk(true),()=>setLeafErr(true));
@@ -1203,7 +1356,7 @@ useEffect(()=>{
             </h1>
             <p style={{color:'#6B7280',fontSize:14,lineHeight:1.65,marginBottom:20,textAlign:'left'}}>Publica un cachuelo y recibe ayuda en Miraflores, San Isidro, Surco y más.</p>
             <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
-              <button className="btn-orange" style={{fontSize:14,padding:'11px 22px'}} onClick={()=>nav('post-job')}>+ Publicar trabajo</button>
+              <button id="post-job-btn" data-tour="emp-publicar" className="btn-orange" style={{fontSize:14,padding:'11px 22px'}} onClick={()=>{if(!requireAuth('publicar trabajos'))return;nav('post-job')}}>+ Publicar trabajo</button>
             </div>
           </div>
           <div style={{position:'relative',zIndex:1}}>
@@ -1211,7 +1364,7 @@ useEffect(()=>{
             <div style={{position:'absolute',inset:0,background:'linear-gradient(to right, #FFF3DF 0%, rgba(255,243,223,0.45) 8%, rgba(255,243,223,0) 22%)',pointerEvents:'none',zIndex:2}}/>
           </div>
         </div>
-        <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12,marginBottom:24}}>
+        <div data-tour="emp-stats" style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12,marginBottom:24}}>
           {[{icon:<Briefcase size={20} color="#EA580C"/>,label:'Mis publicaciones',value:myJobs.length,bg:'#FFF7ED'},{icon:<CheckCircle size={20} color="#16A34A"/>,label:'Completados',value:myJobs.filter(j=>j.status==='completed').length,bg:'#F0FDF4'},{icon:<Users size={20} color="#5B21B6"/>,label:'En progreso',value:myJobs.filter(j=>['in_progress','accepted'].includes(j.status)).length,bg:'#F5F3FF'}].map(s=>(
             <div key={s.label} className="card" style={{padding:'18px 20px',display:'flex',alignItems:'center',gap:12}}>
               <div style={{background:s.bg,borderRadius:12,padding:10,flexShrink:0}}>{s.icon}</div>
@@ -1232,7 +1385,7 @@ useEffect(()=>{
               <h2 style={{fontWeight:700,fontSize:18}}>Mis publicaciones <span style={{color:'#EA580C'}}>({myJobs.length})</span></h2>
               <button className="btn-orange" style={{fontSize:13,padding:'8px 16px'}} onClick={()=>nav('post-job')}>+ Nuevo</button>
             </div>
-            <div className="grid-jobs" style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))',gap:16}}>
+            <div data-tour="emp-jobs" className="grid-jobs" style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))',gap:16}}>
               {myJobs.map((job,i)=><JobCard key={job.id} job={job} nav={nav} delay={i}/>)}
             </div>
           </div>
@@ -1246,7 +1399,7 @@ useEffect(()=>{
 {showBanner&&profile?.verification_status==='verified'&&<SecurityBanner onClose={()=>setShowBanner(false)}/>}
        {profile&&<VerificationBanner status={profile?.verification_status} onStartVerification={onStartVerification}/>}
       {/* HERO — un solo contenedor, sin divisiones, imagen con overlay suave */}
-      <div className="fade-up" style={{position:'relative',background:'#FEF3E2',borderRadius:24,marginBottom:28,overflow:'hidden',display:'grid',gridTemplateColumns:'1fr 1fr',minHeight:320}}>
+      <div id="hero-section" data-tour="cachuelos" className="fade-up" style={{position:'relative',background:'#FEF3E2',borderRadius:24,marginBottom:28,overflow:'hidden',display:'grid',gridTemplateColumns:'1fr 1fr',minHeight:320}}>
         {/* Texto izquierda */}
         <div style={{padding:'44px 40px',display:'flex',flexDirection:'column',justifyContent:'center',position:'relative',zIndex:2,alignItems:'flex-start'}}>
           <div style={{display:'inline-flex',alignItems:'center',gap:6,background:'rgba(234,88,12,.12)',color:'#EA580C',padding:'5px 14px',borderRadius:20,fontSize:12,fontWeight:700,marginBottom:16}}>
@@ -1264,12 +1417,14 @@ useEffect(()=>{
               </div>
             ))}
           </div>
-          {!userPos&&<button className="btn-orange" onClick={getGeo} disabled={geoL} style={{width:'fit-content',display:'flex',alignItems:'center',gap:8,padding:'11px 22px',fontSize:14}}>
-            <MapPin size={16}/>{geoL?'Buscando...':'Ver trabajos cerca de mí'}
-          </button>}
-          {userPos&&<span style={{display:'inline-flex',alignItems:'center',gap:8,color:'#16A34A',fontWeight:700,fontSize:13,background:'#F0FDF4',border:'1.5px solid #86EFAC',padding:'8px 16px',borderRadius:20,width:'fit-content'}}>
-            <CheckCircle size={15}/> Mostrando por cercanía
-          </span>}
+          <div data-tour="ubicacion" style={{display:'inline-block'}}>
+            {!userPos&&<button id="geo-button" className="btn-orange" onClick={getGeo} disabled={geoL} style={{width:'fit-content',display:'flex',alignItems:'center',gap:8,padding:'11px 22px',fontSize:14}}>
+              <MapPin size={16}/>{geoL?'Buscando...':'Ver trabajos cerca de mí'}
+            </button>}
+            {userPos&&<span style={{display:'inline-flex',alignItems:'center',gap:8,color:'#16A34A',fontWeight:700,fontSize:13,background:'#F0FDF4',border:'1.5px solid #86EFAC',padding:'8px 16px',borderRadius:20,width:'fit-content'}}>
+              <CheckCircle size={15}/> Mostrando por cercanía
+            </span>}
+          </div>
         </div>
         {/* Imagen derecha — sin background propio, overlay suaviza la unión */}
         <div style={{position:'relative',zIndex:1}}>
@@ -1304,7 +1459,7 @@ useEffect(()=>{
         {leafErr&&<span style={{fontSize:12,color:'#DC2626',fontWeight:600}}>⚠ No se pudo cargar el mapa</span>}
         <button className="btn-ghost" onClick={fetchJobs} style={{border:'1.5px solid #E5E7EB',borderRadius:12}}>🔄</button>
       </div>
-      <div className="pill-nav fade-up-2" style={{marginBottom:18}}>
+      <div id="filter-pills" data-tour="categorias" className="pill-nav fade-up-2" style={{marginBottom:18}}>
         <button className="pill" onClick={()=>setCat('all')} style={{background:cat==='all'?'#EA580C':'#F3F4F6',color:cat==='all'?'#fff':'#374151',display:'inline-flex',alignItems:'center',gap:5}}>
           <LayoutGrid size={13}/>Todos
         </button>
@@ -1327,7 +1482,7 @@ useEffect(()=>{
           <button className="btn-ghost" style={{marginTop:12}} onClick={fetchJobs}>Actualizar</button>
         </div>
       ):(
-        <div className="grid-jobs" style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))',gap:18}}>
+        <div id="jobs-grid" data-tour="trabajos" className="grid-jobs" style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))',gap:18}}>
           {filtered.map((job,i)=>{
             const score = !isEmp ? scoreJobForWorker(job,prefs) : 0;
             return <JobCard key={job.id} job={job} nav={nav} delay={i} dist={job.dist} recommended={score>0} recReason={prefs.favCats.has(job.category)?'★ Favorita':'Para ti'}/>;
@@ -1377,7 +1532,7 @@ function MapPage({nav}){
 }
 
 // ─── JOB DETAIL — FLUJO COMPLETO CON POLLING + REALTIME ─────────────────────
-function JobDetailPage({profile,jid,nav,back,toast}){
+function JobDetailPage({profile,jid,nav,back,toast,requireAuth}){
   const[job,setJob]=useState(null);
   const[reviews,setReviews]=useState([]);
   const[loading,setLoading]=useState(true);
@@ -1444,7 +1599,7 @@ function JobDetailPage({profile,jid,nav,back,toast}){
   const isWorker=profile?.id===job.worker_id;
 
   // Permisos por estado y rol — se recalculan cada vez que job cambia
-  const canAccept  = job.status==='open'        && !isPoster && !isWorker && profile?.role==='trabajador';
+  const canAccept  = job.status==='open'        && !isPoster && !isWorker && (!profile || profile?.role==='trabajador');
   const canStart   = job.status==='accepted'    && isWorker;
   const canFinish  = job.status==='in_progress' && isWorker  && !job.worker_finished;
   const canConfirm = job.status==='in_progress' && isPoster  && job.worker_finished;
@@ -1558,6 +1713,7 @@ function JobDetailPage({profile,jid,nav,back,toast}){
               <p style={{fontSize:13,color:'#6B7280',marginBottom:14,lineHeight:1.6}}>Al aceptar te comprometes a realizarlo. Ganarás <strong style={{color:'#16A34A'}}>S/{(job.price*.9).toFixed(2)}</strong> netos.</p>
               <button className="btn-orange" style={{width:'100%',justifyContent:'center',padding:13,fontSize:15}}
               onClick={()=>{
+              if(!requireAuth('aceptar trabajos')) return;
               if(profile?.verification_status!=='verified'){
             toast('Debes verificar tu identidad para aceptar trabajos','error');
             return;
@@ -1835,65 +1991,24 @@ function PersonBox({label,name,color='#EA580C'}){
 }
 
 // ─── PAYMENT MODAL ────────────────────────────────────────────────────────────
-const CULQI_PK = 'pk_test_k8iNPxk22QhtVQqG';
-const CULQI_RSA_ID = 'be69e8b4-72f5-4c8c-8617-c8cef4384051';
-const CULQI_RSA_KEY = `-----BEGIN PUBLIC KEY-----
-MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCnApkqT78ipzam5A7APANv8EWw
-HchIa5nRRvQPCLCrjJKecpYKS1e5nZMnWLv3WYlh3VGt7qeeU04rBLquOPlNF9mH
-0ch0m7v2ZcKlr2ph16XYs3/X4FQIbcKD8bPuMrjIGbIntavoFp8Fjpbi/gBQYyw6
-CAOFF8uN7RHoH9otvQIDAQAB
------END PUBLIC KEY-----`;
-const SUPABASE_EDGE_URL = `${SUPA_URL}/functions/v1/process-payment`;
-
-function PaymentModal({amount, title, email, onSuccess, onClose}){
-  const[card,setCard]=useState({number:'',month:'',year:'',cvv:''});
+function PaymentModal({amount, title, onSuccess, onClose}){
   const[loading,setLoading]=useState(false);
-  const[error,setError]=useState('');
-  const set=(k,v)=>setCard(p=>({...p,[k]:v}));
-
-  // Cargar Culqi.js al montar
-  useEffect(()=>{
-    if(window.Culqi)return;
-    const s=document.createElement('script');
-    s.src='https://checkout.culqi.com/js/v4';
-    s.onload=()=>{
-      window.Culqi.publicKey=CULQI_PK;
-      window.Culqi.settings({
-        title:'Cachuelos',
-        currency:'PEN',
-        description:title,
-        amount:Math.round(amount*100),
-        rsaPublicKey:CULQI_RSA_KEY,
-        rsaId:CULQI_RSA_ID,
-      });
-    };
-    document.head.appendChild(s);
-  },[]);
 
   const handlePay=async()=>{
-    setError('');
-    if(!card.number||!card.month||!card.year||!card.cvv){setError('Completa todos los campos');return}
-    if(card.number.replace(/\s/g,'').length<16){setError('Número de tarjeta inválido');return}
     setLoading(true);
-    // MODO DEMO: simular procesamiento de pago
-    await new Promise(r=>setTimeout(r,2000));
-    const fakeChargeId='demo_'+Date.now();
-    onSuccess(fakeChargeId);
+    await new Promise(r=>setTimeout(r,1500));
+    onSuccess('demo_'+Date.now());
     setLoading(false);
   };
-
-  // Formatear número de tarjeta con espacios cada 4 dígitos
-  const fmtCard=(v)=>v.replace(/\D/g,'').slice(0,16).replace(/(.{4})/g,'$1 ').trim();
 
   return(
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.6)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}
       onClick={e=>{if(e.target===e.currentTarget)onClose()}}>
-      <div className="card fade-up" style={{maxWidth:420,width:'100%',padding:0,overflow:'hidden'}}>
-        {/* Header */}
+      <div className="card fade-up" style={{maxWidth:380,width:'100%',padding:0,overflow:'hidden'}}>
         <div style={{background:'linear-gradient(135deg,#EA580C,#F97316)',padding:'24px 28px'}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
             <div>
-              <h2 style={{color:'#fff',fontWeight:800,fontSize:20,marginBottom:4}}>💳 Pago seguro</h2>
+              <h2 style={{color:'#fff',fontWeight:800,fontSize:20,marginBottom:4}}>Confirmar pago</h2>
               <p style={{color:'rgba(255,255,255,.85)',fontSize:13}}>{title}</p>
             </div>
             <button onClick={onClose} style={{color:'rgba(255,255,255,.8)',fontSize:22,lineHeight:1,padding:4}}>×</button>
@@ -1903,44 +2018,36 @@ function PaymentModal({amount, title, email, onSuccess, onClose}){
             <span style={{color:'#fff',fontWeight:800,fontSize:24}}>S/{amount.toFixed(2)}</span>
           </div>
         </div>
-
-        {/* Formulario */}
-        <div style={{padding:28}}>
-          <Field label="Número de tarjeta">
-            <input className="inp" placeholder="1234 5678 9012 3456" value={card.number}
-              onChange={e=>set('number',fmtCard(e.target.value))} maxLength={19}/>
-          </Field>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
-            <Field label="Mes"><input className="inp" placeholder="MM" value={card.month}
-              onChange={e=>set('month',e.target.value.replace(/\D/g,'').slice(0,2))} maxLength={2}/></Field>
-            <Field label="Año"><input className="inp" placeholder="AA" value={card.year}
-              onChange={e=>set('year',e.target.value.replace(/\D/g,'').slice(0,2))} maxLength={2}/></Field>
-            <Field label="CVV"><input className="inp" placeholder="123" value={card.cvv} type="password"
-              onChange={e=>set('cvv',e.target.value.replace(/\D/g,'').slice(0,4))} maxLength={4}/></Field>
+        <div style={{padding:24}}>
+          <div style={{background:'#F0FDF4',border:'1.5px solid #BBF7D0',borderRadius:12,padding:'14px 16px',marginBottom:20,fontSize:13,color:'#166534',lineHeight:1.6}}>
+            🔒 Pago seguro procesado por la plataforma. El monto queda retenido hasta que el trabajo sea confirmado como completado.
           </div>
-
-          {error&&<div style={{background:'#FEF2F2',border:'1.5px solid #FCA5A5',borderRadius:12,padding:'10px 14px',marginBottom:16,fontSize:13,color:'#DC2626',fontWeight:600}}>⚠ {error}</div>}
-
-          <div style={{background:'#F0FDF4',border:'1.5px solid #BBF7D0',borderRadius:12,padding:'10px 14px',marginBottom:16,fontSize:12,color:'#166534'}}>
-            🔒 Pago procesado de forma segura por Culqi. Cachuelos nunca almacena datos de tu tarjeta.
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:20}}>
+            {[['10%','Comisión Cachuelos'],['90%','Va al trabajador'],['🔒','Pago protegido'],['✅','Liberación al completar']].map(([v,l])=>(
+              <div key={l} style={{background:'#F9FAFB',borderRadius:10,padding:'10px 12px',textAlign:'center'}}>
+                <div style={{fontWeight:800,fontSize:16,color:'#EA580C'}}>{v}</div>
+                <div style={{fontSize:10,color:'#6B7280',marginTop:2}}>{l}</div>
+              </div>
+            ))}
           </div>
-
-          <div style={{background:'#EFF6FF',border:'1.5px solid #93C5FD',borderRadius:12,padding:'10px 14px',marginBottom:16,fontSize:12,color:'#1D4ED8'}}>
-            🧪 <strong>Modo demo</strong> — ingresa cualquier dato de tarjeta para simular el pago. No se realizará ningún cobro real.
-          </div>
-
           <button className="btn-orange" onClick={handlePay} disabled={loading}
             style={{width:'100%',justifyContent:'center',fontSize:15,padding:14}}>
-            {loading?'⏳ Procesando pago...':'💳 Pagar S/'+amount.toFixed(2)}
+            {loading?'⏳ Procesando...`':'Confirmar — S/'+amount.toFixed(2)}
           </button>
+          <p style={{fontSize:11,color:'#9CA3AF',textAlign:'center',marginTop:10}}>
+            Plataforma de pagos segura · Cachuelos 2026
+          </p>
         </div>
       </div>
     </div>
   );
 }
-
 // ─── POST JOB ─────────────────────────────────────────────────────────────────
-function PostJobPage({profile,nav,back,toast}){
+function PostJobPage({profile,nav,back,toast,authUser,openAuth}){
+  useEffect(()=>{
+    if(!authUser){openAuth('publicar trabajos');nav('home');}
+  },[authUser]);
+  if(!authUser) return null;
   const[form,setForm]=useState({title:'',description:'',category:'',price:'80',estimated_hours:'3',location:'',schedule_start:'',schedule_end:''});
   const[loc,setLoc]=useState(null);
   const[loading,setLoading]=useState(false);
@@ -2002,13 +2109,12 @@ function PostJobPage({profile,nav,back,toast}){
 
   return(
     <div className="fade-up" style={{maxWidth:640,margin:'0 auto'}}>
-      {showPayment&&<PaymentModal
-        amount={price}
-        title={form.title||'Trabajo en Cachuelos'}
-        email={profile.email}
-        onSuccess={handlePaymentSuccess}
-        onClose={()=>setShowPayment(false)}
-      />}
+{showPayment&&<PaymentModal
+  amount={price}
+  title={form.title||'Trabajo en Cachuelos'}
+  onSuccess={handlePaymentSuccess}
+  onClose={()=>setShowPayment(false)}
+/>}
       <button className="btn-ghost" style={{marginBottom:20,paddingLeft:0,display:'flex',alignItems:'center',gap:6}} onClick={back}>← Volver</button>
       <div className="card" style={{overflow:'hidden'}}>
         <div style={{background:'linear-gradient(135deg,#EA580C,#F97316)',padding:'28px 32px'}}>
@@ -2059,7 +2165,11 @@ function PostJobPage({profile,nav,back,toast}){
 }
 
 // ─── MY JOBS ──────────────────────────────────────────────────────────────────
-function MyJobsPage({profile,nav}){
+function MyJobsPage({profile,nav,authUser,openAuth}){
+  useEffect(()=>{
+    if(!authUser){openAuth('ver tus trabajos');nav('home');}
+  },[authUser]);
+  if(!authUser) return null;
   const[jobs,setJobs]=useState([]);
   const[loading,setLoading]=useState(true);
   const isWorker=profile?.role==='trabajador';
@@ -2518,6 +2628,492 @@ return(
     </div>
   );
 }
+// ─── CACHU MASCOTA ────────────────────────────────────────────────────────────
+function Cachu({page, profile}){
+  const[open,setOpen]=useState(false);
+  const[pos,setPos]=useState({x:null,y:null});
+  const[dragging,setDragging]=useState(false);
+  const[mood,setMood]=useState('happy');
+  const[msg,setMsg]=useState('');
+  const[showMsg,setShowMsg]=useState(false);
+  const[walking,setWalking]=useState(false);
+  const[walkDir,setWalkDir]=useState(1);
+  const dragRef=useRef(null);
+  const wrapRef=useRef(null);
+  const msgTO=useRef(null);
+  const walkTO=useRef(null);
+  const walkInt=useRef(null);
+  const posRef=useRef({x:null,y:null});
+
+  const AYUDA={
+    'home-emp':['¿Cómo publico un trabajo? 📋','¿Cómo verifico mi identidad? 🛡','¿Cómo funciona la comisión? 💸'],
+    home:['¿Cómo acepto un trabajo? 🤔','¿Cómo funciona el pago? 💰','¿Qué es Lima Moderna? 📍'],
+    'post-job':['¿Cómo publico bien mi trabajo? 📋','¿Por qué necesito verificarme? 🛡','¿Cómo funciona la comisión? 💸'],
+    'my-jobs':['¿Cómo marco un trabajo como terminado? ✅','¿Puedo cancelar un trabajo? ❌','¿Cómo califico al trabajador? ⭐'],
+    job:['¿Cómo inicio el trabajo? ⚡','¿Qué hago si hay un problema? ⚠','¿Cuándo recibo mi pago? 💰'],
+    profile:['¿Para qué sirve verificarme? 🛡','¿Cómo mejoro mi perfil? ✏️','¿Qué son las categorías favoritas? ⭐'],
+    map:['¿Cómo uso el mapa? 🗺','¿Qué significa el radio? 📏','¿Por qué no veo trabajos? 🔍'],
+  };
+
+  const RESPUESTAS={
+    '¿Cómo acepto un trabajo? 🤔':'¡Fácil! Entra al trabajo que te interese y presiona "Aceptar trabajo". Necesitas tener el DNI verificado primero 🪪',
+    '¿Cómo funciona el pago? 💰':'El empleador paga al publicar. Cuando completes el trabajo y él confirme, recibes el 90% del precio acordado 💸',
+    '¿Qué es Lima Moderna? 📍':'Son los distritos donde opera Cachuelos: Miraflores, San Isidro, Surco, San Borja, Barranco y más 🏙',
+    '¿Cómo publico bien mi trabajo? 📋':'Pon un título claro, describe bien qué necesitas, elige el distrito correcto y marca la ubicación exacta en el mapa 🗺',
+    '¿Por qué necesito verificarme? 🛡':'Para que todos confíen. Solo toma 2 minutos: foto del DNI + selfie. ¡Y puedes publicar o aceptar trabajos! ✅',
+    '¿Cómo funciona la comisión? 💸':'Cachuelos cobra 10% del precio que publicas. Si publicas un trabajo de S/100, el trabajador recibe S/90 y Cachuelos cobra S/10 💰',
+    '¿Cómo marco un trabajo como terminado? ✅':'Entra al trabajo → presiona "Terminé el trabajo". El empleador debe confirmar para liberar tu pago 🎉',
+    '¿Puedo cancelar un trabajo? ❌':'Sí, si eres empleador puedes cancelar o reabrir para otro trabajador desde la página del trabajo 🔄',
+    '¿Cómo califico al trabajador? ⭐':'Cuando el trabajo esté completado, aparece la sección de calificación. ¡Las estrellas ayudan a la comunidad! 🌟',
+    '¿Cómo inicio el trabajo? ⚡':'Cuando hayas llegado al lugar, presiona "Iniciar trabajo". El empleador verá que estás en progreso ⚡',
+    '¿Qué hago si hay un problema? ⚠':'Abre el chat del trabajo → botón "Reportar". Nuestro equipo lo revisará pronto 🛡',
+    '¿Cuándo recibo mi pago? 💰':'Cuando el empleador confirme que terminaste. El pago queda retenido hasta ese momento, así estás protegido 🔒',
+    '¿Para qué sirve verificarme? 🛡':'La verificación con DNI genera confianza. Los usuarios verificados consiguen más trabajos y pueden publicar 💪',
+    '¿Cómo mejoro mi perfil? ✏️':'Agrega foto, bio, LinkedIn y marca tus categorías favoritas. ¡Un perfil completo atrae más empleadores! 🌟',
+    '¿Qué son las categorías favoritas? ⭐':'Las categorías que más te gustan trabajar. Cachuelos te mostrará primero esos cachuelos 🎯',
+    '¿Cómo uso el mapa? 🗺':'Mueve el mapa, ajusta el radio y haz clic en los marcadores para ver los trabajos disponibles cerca 📍',
+    '¿Qué significa el radio? 📏':'Es la distancia máxima desde tu ubicación. Amplíalo si no ves trabajos cerca 🔍',
+    '¿Por qué no veo trabajos? 🔍':'Puede que no haya trabajos en ese radio. Amplíalo o revisa en el inicio con todos los cachuelos disponibles 👀',
+    '¿Cómo publico un trabajo? 📋':'¡Fácil! Presiona "+ Publicar" en la navbar o en el botón del hero. Completa el formulario con título, descripción, categoría, ubicación exacta y precio. Necesitas tener el DNI verificado primero 🛡',
+    '¿Cómo verifico mi identidad? 🛡':'Ve a tu perfil → sección de verificación. Toma foto de tu DNI y una selfie con prueba de vida. Nuestro equipo lo aprueba en poco tiempo ✅',
+  };
+
+  // Cada paso apunta a un atributo data-tour único en el DOM (ver App: data-tour="...")
+  // target:null = no camina, solo muestra el mensaje en la posición actual.
+  // Hay un recorrido distinto para trabajador y para empleador, ya que ven páginas
+  // distintas en Home (HomePage bifurca por profile.role).
+  const TOUR_STEPS_WORKER=[
+    {target:null,            msg:'¡Hola! Soy Cachu 🤖',mood:'happy'},
+    {target:'inicio',        msg:'Aquí navegas la app 🧭',mood:'thinking'},
+    {target:'cachuelos',     msg:'Aquí están los cachuelos 📋',mood:'happy'},
+    {target:'ubicacion',     msg:'¡Activa tu ubicación! 📍',mood:'love'},
+    {target:'categorias',    msg:'Filtra por categoría 🔍',mood:'thinking'},
+    {target:'trabajos',      msg:'¡Toca un trabajo para verlo! 💪',mood:'happy'},
+    {target:'mis-trabajos',  msg:'Aquí ves tus trabajos 💼',mood:'happy'},
+    {target:null,            msg:'¡Listo! Cualquier duda aquí estoy 🎉',mood:'love'},
+  ];
+
+  const TOUR_STEPS_EMP=[
+    {target:null,            msg:'¡Hola! Soy Cachu 🤖',mood:'happy'},
+    {target:'inicio',        msg:'Aquí navegas la app 🧭',mood:'thinking'},
+    {target:'emp-publicar',  msg:'Publica tu primer cachuelo aquí 🚀',mood:'love'},
+    {target:'emp-stats',     msg:'Aquí ves tus estadísticas 📊',mood:'thinking'},
+    {target:'emp-mercado',   msg:'El mercado de Lima en tiempo real 📈',mood:'happy'},
+    {target:'emp-jobs',      msg:'Tus trabajos publicados aparecen aquí 📋',mood:'happy'},
+    {target:'mis-trabajos',  msg:'Gestiona todos tus trabajos aquí 💼',mood:'happy'},
+    {target:null,            msg:'¡Listo! Cualquier duda aquí estoy 🎉',mood:'love'},
+  ];
+
+  const[tourStep,setTourStep]=useState(-1);
+  const[tourActive,setTourActive]=useState(false);
+
+  const say=(txt,m='happy',dur=4000)=>{
+    setMsg(txt); setMood(m); setShowMsg(true);
+    clearTimeout(msgTO.current);
+    msgTO.current=setTimeout(()=>setShowMsg(false),dur);
+  };
+
+  const askHelp=(q)=>{
+    setOpen(false);
+    const r=RESPUESTAS[q]||'¡Buena pregunta! Explora la app y cualquier duda aquí estoy 😊';
+    say(r,'thinking',6000);
+  };
+
+  // Elemento actualmente resaltado con el borde punteado — se limpia explícitamente
+  // antes de resaltar el siguiente, en vez de depender de un setTimeout que puede
+  // dejar dos elementos marcados a la vez si el usuario presiona "Siguiente" rápido.
+  const highlightRef=useRef(null);
+  const clearHighlight=()=>{
+    if(highlightRef.current){
+      highlightRef.current.style.outline='';
+      highlightRef.current.style.outlineOffset='';
+      highlightRef.current=null;
+    }
+  };
+
+  const findTourTarget=(target)=>target?document.querySelector(`[data-tour="${target}"]`):null;
+
+  const measureTarget=(el)=>{
+    const r=el.getBoundingClientRect();
+    return{
+      x:Math.max(0,Math.min(window.innerWidth-80,r.left+r.width/2-32)),
+      y:Math.max(200,Math.min(window.innerHeight-200,window.innerHeight-r.bottom-40)),
+    };
+  };
+
+  const walkToElement=(target,onArrived)=>{
+    clearInterval(walkInt.current);
+    clearHighlight();
+    if(!target){onArrived();return;}
+    const el=findTourTarget(target);
+    if(!el){
+      console.warn(`[Cachu Tour] No se encontró ningún elemento con data-tour="${target}". Se omite el desplazamiento para este paso.`);
+      onArrived();
+      return;
+    }
+    // Salto instantáneo (sin animación de scroll) para que la posición que midamos
+    // a continuación ya sea la final — así Cachu no camina hacia un punto que el
+    // scroll suave todavía está corrigiendo.
+    el.scrollIntoView({behavior:'instant',block:'center'});
+    requestAnimationFrame(()=>{
+      const{x:targetX,y:targetY}=measureTarget(el);
+      setWalking(true);
+      const cur=posRef.current;
+      let cx=cur.x??window.innerWidth-88;
+      let cy=cur.y??80;
+      const dx=targetX-cx, dy=targetY-cy;
+      const dist=Math.sqrt(dx*dx+dy*dy);
+      const steps=Math.max(20,Math.floor(dist/3));
+      const sx=dx/steps, sy=dy/steps;
+      let count=0;
+      const finish=()=>{
+        clearInterval(walkInt.current);
+        setWalking(false);
+        highlightRef.current=el;
+        el.style.outline='3px dashed #EA580C';
+        el.style.outlineOffset='4px';
+        onArrived();
+      };
+      const safetyTO=setTimeout(finish,3000);
+      walkInt.current=setInterval(()=>{
+        cx+=sx; cy+=sy; count++;
+        posRef.current={x:cx,y:cy};
+        setPos({x:cx,y:cy});
+        if(count>=steps){
+          clearTimeout(safetyTO);
+          finish();
+        }
+      },16);
+    });
+  };
+
+  const TOUR_STEPS = profile?.role==='empleador' ? TOUR_STEPS_EMP : TOUR_STEPS_WORKER;
+
+  const startTour=()=>{
+    setOpen(false);
+    setTourActive(true);
+    setTourStep(0);
+    const t=TOUR_STEPS[0];
+    walkToElement(t.target,()=>say(t.msg,t.mood,99999));
+  };
+
+  const endTour=()=>{
+    clearHighlight();
+    setTourActive(false);setTourStep(-1);setShowMsg(false);
+  };
+
+  const nextTour=()=>{
+    const next=tourStep+1;
+    if(next>=TOUR_STEPS.length){endTour();return;}
+    const t=TOUR_STEPS[next];
+    setTourStep(next);
+    walkToElement(t.target,()=>say(t.msg,t.mood,99999));
+  };
+
+  // Si la ventana cambia de tamaño mientras un paso está activo, el elemento puede
+  // moverse (ej: layout responsive) — reubicamos a Cachu sin reiniciar la caminata.
+  useEffect(()=>{
+    if(!tourActive||tourStep<0)return;
+    const resnap=()=>{
+      const t=TOUR_STEPS[tourStep];
+      if(!t?.target)return;
+      const el=findTourTarget(t.target);
+      if(!el)return;
+      const{x,y}=measureTarget(el);
+      posRef.current={x,y};
+      setPos({x,y});
+    };
+    window.addEventListener('resize',resnap);
+    return()=>window.removeEventListener('resize',resnap);
+  },[tourActive,tourStep]);
+
+  useEffect(()=>()=>clearHighlight(),[]);
+  // Auto frases
+  const AUTO=[
+    ['¡Hola! 😊','happy'],['Uhmm... 🤔','thinking'],
+    ['¿Aceptarás ese trabajo? 🤔','thinking'],['¡Eso estuvo buenazo! 🔥','love'],
+    ['¿EN SERIO?! 😱','surprised'],['Psst... hay uno nuevo por ahí 👀','thinking'],
+    ['No mentira jaja 😄','happy'],['Chambea duro 💪','love'],
+    ['¿Todo bien? ✌️','happy'],['¡Ese paga bien! 💰','love'],
+  ];
+  useEffect(()=>{
+    const t=setInterval(()=>{
+      if(!open&&!tourActive){
+        const f=AUTO[Math.floor(Math.random()*AUTO.length)];
+        say(f[0],f[1],3500);
+      }
+    },8000);
+    return()=>clearInterval(t);
+  },[open,tourActive]);
+
+  // Walk
+  useEffect(()=>{
+    const doWalk=()=>{
+      if(dragging||open||tourActive)return;
+      setWalking(true);
+      const steps=Math.floor(Math.random()*80)+40;
+      let count=0;
+      const dir=Math.random()>0.5?1:-1;
+      setWalkDir(dir);
+      clearInterval(walkInt.current);
+      walkInt.current=setInterval(()=>{
+        if(dragging){clearInterval(walkInt.current);setWalking(false);return;}
+        setPos(p=>{
+          const nx=(p.x??window.innerWidth-80)+(dir*1.5);
+          const clamped=Math.max(10,Math.min(window.innerWidth-80,nx));
+          posRef.current={...posRef.current,x:clamped};
+          return{...p,x:clamped};
+        });
+        count++;
+        if(count>=steps){
+          clearInterval(walkInt.current);
+          setWalking(false);
+          walkTO.current=setTimeout(doWalk,Math.random()*4000+2000);
+        }
+      },25);
+    };
+    walkTO.current=setTimeout(doWalk,3000);
+    return()=>{clearInterval(walkInt.current);clearTimeout(walkTO.current);};
+  },[dragging,open,tourActive]);
+
+  // Drag
+  useEffect(()=>{
+    const onMove=e=>{
+      if(!dragging)return;
+      const cx=e.touches?e.touches[0].clientX:e.clientX;
+      const cy=e.touches?e.touches[0].clientY:e.clientY;
+      const nx=cx-dragRef.current.ox;
+      const ny=window.innerHeight-cy-dragRef.current.oy;
+      const clamped={
+        x:Math.max(0,Math.min(window.innerWidth-80,nx)),
+        y:Math.max(200,Math.min(window.innerHeight-200,ny)),      };
+      posRef.current=clamped;
+      setPos(clamped);
+    };
+    const onUp=()=>{
+      if(dragging){
+        setDragging(false);
+        say('Uf... mareado 😵‍💫','surprised');
+        setTimeout(()=>setWalking(false),500);
+      }
+    };
+    window.addEventListener('mousemove',onMove);
+    window.addEventListener('mouseup',onUp);
+    window.addEventListener('touchmove',onMove,{passive:false});
+    window.addEventListener('touchend',onUp);
+    return()=>{
+      window.removeEventListener('mousemove',onMove);
+      window.removeEventListener('mouseup',onUp);
+      window.removeEventListener('touchmove',onMove);
+      window.removeEventListener('touchend',onUp);
+    };
+  },[dragging]);
+
+  const onMouseDown=e=>{
+    e.preventDefault();
+    clearInterval(walkInt.current);
+    clearTimeout(walkTO.current);
+    setWalking(false);
+    const cx=e.touches?e.touches[0].clientX:e.clientX;
+    const cy=e.touches?e.touches[0].clientY:e.clientY;
+    const cur=posRef.current;
+    const rx=cur.x??window.innerWidth-80;
+    const ry=cur.y??80;
+    dragRef.current={ox:cx-rx,oy:window.innerHeight-cy-ry};
+    setDragging(true);
+    say('¡Oe suéltame! 😵','surprised');
+  };
+
+  const currentX=pos.x??window.innerWidth-88;
+  const currentY=pos.y??100;
+  // Expresiones SVG
+  const EYES={
+    happy:{pl:{cx:24,cy:24,r:3,fill:'#1F2937'},pr:{cx:40,cy:24,r:3,fill:'#1F2937'},el:{r:6,fill:'white'},er:{r:6,fill:'white'}},
+    surprised:{pl:{cx:24,cy:24,r:2,fill:'#1F2937'},pr:{cx:40,cy:24,r:2,fill:'#1F2937'},el:{r:7,fill:'white'},er:{r:7,fill:'white'}},
+    thinking:{pl:{cx:24,cy:22,r:3,fill:'#1F2937'},pr:{cx:40,cy:22,r:3,fill:'#1F2937'},el:{r:6,fill:'white'},er:{r:6,fill:'white'}},
+    love:{pl:{cx:24,cy:24,r:3,fill:'#DC2626'},pr:{cx:40,cy:24,r:3,fill:'#DC2626'},el:{r:6,fill:'#FEF2F2'},er:{r:6,fill:'#FEF2F2'}},
+    sleepy:{pl:{cx:24,cy:24,r:0,fill:'#1F2937'},pr:{cx:40,cy:24,r:0,fill:'#1F2937'},el:{r:6,fill:'white'},er:{r:6,fill:'white'}},
+    angry:{pl:{cx:24,cy:24,r:3,fill:'#DC2626'},pr:{cx:40,cy:24,r:3,fill:'#DC2626'},el:{r:6,fill:'#FEF2F2'},er:{r:6,fill:'#FEF2F2'}},
+  };
+  const MOUTHS={
+    happy:{x:24,y:30,w:16,h:3,rx:1.5,fill:'white',op:0.8},
+    surprised:{x:28,y:29,w:8,h:5,rx:4,fill:'white',op:0.9},
+    thinking:{x:26,y:30,w:10,h:3,rx:1.5,fill:'white',op:0.7},
+    love:{x:22,y:29,w:20,h:4,rx:2,fill:'white',op:0.95},
+    sleepy:{x:26,y:30,w:12,h:3,rx:1.5,fill:'white',op:0.3},
+    angry:{x:24,y:31,w:16,h:3,rx:1.5,fill:'#FCA5A5',op:1},
+  };
+  const e=EYES[mood]||EYES.happy;
+  const m=MOUTHS[mood]||MOUTHS.happy;
+  const pageKey = page==='home' && profile?.role==='empleador' ? 'home-emp' : page;
+  const helpItems=AYUDA[pageKey]||AYUDA.home;
+
+  return(
+    <div style={{position:'fixed',inset:0,pointerEvents:'none',zIndex:9000}}>
+      {/* Burbuja — posicionada de forma independiente del mascot wrapper y
+          clamped al ancho de la ventana para que nunca quede fuera de pantalla,
+          aunque Cachu esté pegado al borde izquierdo o derecho. */}
+      {showMsg&&(
+        <div style={{
+          position:'fixed',
+          left:Math.min(Math.max(currentX-8,8),window.innerWidth-158),
+          bottom:currentY+82,
+          background:'#fff',border:'2px solid #EA580C',
+          borderRadius:'14px 14px 14px 4px',
+          padding:'8px 12px',fontSize:11,fontWeight:700,
+          color:'#111827',maxWidth:150,lineHeight:1.4,
+          boxShadow:'0 4px 20px rgba(234,88,12,0.15)',
+          animation:'fadeUp .2s ease-out',
+          zIndex:9001,
+          pointerEvents:'all',
+        }}>
+          {msg}
+          {tourActive&&(
+            <button
+              onClick={nextTour}
+              style={{display:'block',marginTop:8,background:'#EA580C',color:'#fff',border:'none',borderRadius:8,padding:'4px 12px',fontSize:11,fontWeight:700,cursor:'pointer',width:'100%'}}
+            >
+              {tourStep>=TOUR_STEPS.length-1?'¡Listo! 🎉':'Siguiente →'}
+            </button>
+          )}
+          <div style={{position:'absolute',bottom:-9,left:14,borderLeft:'8px solid transparent',borderRight:'8px solid transparent',borderTop:'9px solid #EA580C'}}/>
+        </div>
+      )}
+
+      {/* Cachu */}
+       <div
+         ref={wrapRef}
+         style={{
+          position:'fixed',
+          left:currentX,
+          bottom:currentY,
+          pointerEvents:'all',
+          cursor:'default',
+          userSelect:'none',
+          zIndex:9001,
+          display:'flex',
+          flexDirection:'column',
+          alignItems:'flex-start',
+          gap:0,
+        }}
+      >
+        {/* SVG robot */}
+          <svg
+           width="64" height="76" viewBox="0 0 64 76"
+             onMouseDown={onMouseDown}
+              onTouchStart={onMouseDown}
+              style={{
+              cursor:dragging?'grabbing':'grab',
+              animation:walking?'walk .35s ease-in-out infinite':'bob 1.8s ease-in-out infinite',
+              filter:'drop-shadow(0 4px 12px rgba(234,88,12,0.3))',
+                }}
+             >
+          <style>{`
+            @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+            @keyframes walk{0%,100%{transform:translateX(0) rotate(0)}25%{transform:translateX(-2px) rotate(-3deg)}75%{transform:translateX(2px) rotate(3deg)}}
+          `}</style>
+          {/* Cuerpo */}
+          <rect x="16" y="34" width="32" height="30" rx="8" fill="#EA580C"/>
+          {/* Brazos */}
+          <rect x="8" y="46" width="8" height="18" rx="4" fill="#F97316"/>
+          <rect x="48" y="46" width="8" height="18" rx="4" fill="#F97316"/>
+          {/* Piernas */}
+          <rect x="20" y="58" width="8" height="14" rx="4" fill="#C2410C"/>
+          <rect x="36" y="58" width="8" height="14" rx="4" fill="#C2410C"/>
+          {/* Panel pecho */}
+          <rect x="20" y="38" width="24" height="10" rx="4" fill="rgba(255,255,255,0.15)"/>
+          {/* Cabeza */}
+          <rect x="14" y="10" width="36" height="28" rx="10" fill="#F97316"/>
+          {/* Ojos */}
+          <circle cx="24" cy="24" r={e.el.r} fill={e.el.fill}/>
+          <circle cx="40" cy="24" r={e.er.r} fill={e.er.fill}/>
+          <circle cx={e.pl.cx} cy={e.pl.cy} r={e.pl.r} fill={e.pl.fill}/>
+          <circle cx={e.pr.cx} cy={e.pr.cy} r={e.pr.r} fill={e.pr.fill}/>
+          <circle cx="26" cy="22" r="1.5" fill="white"/>
+          <circle cx="42" cy="22" r="1.5" fill="white"/>
+          {/* Boca */}
+          <rect x={m.x} y={m.y} width={m.w} height={m.h} rx={m.rx} fill={m.fill} opacity={m.op}/>
+          {/* Antena */}
+          <rect x="28" y="2" width="8" height="10" rx="4" fill="#F97316"/>
+          <circle cx="32" cy="1" r="4" fill="#EA580C"/>
+          <circle cx="32" cy="1" r="2" fill={mood==='love'?'#F43F5E':mood==='angry'?'#DC2626':'#FCD34D'}/>
+        </svg>
+      </div>
+
+      {/* Panel */}
+      {open&&(
+        <div style={{
+          position:'fixed',
+          right:20,bottom:90,
+          width:220,
+          background:'#fff',
+          borderRadius:18,
+          border:'1.5px solid #EA580C',
+          boxShadow:'0 8px 32px rgba(234,88,12,0.2)',
+          overflow:'hidden',
+          zIndex:9002,
+          pointerEvents:'all',
+          animation:'fadeUp .2s ease-out',
+        }}>
+          <div style={{background:'#EA580C',padding:'12px 16px',display:'flex',alignItems:'center',gap:10}}>
+            <div style={{width:32,height:32,background:'rgba(255,255,255,0.2)',borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18}}>🤖</div>
+            <div>
+              <div style={{color:'#fff',fontWeight:700,fontSize:13}}>Cachu</div>
+              <div style={{color:'rgba(255,255,255,0.8)',fontSize:10}}>tu guía en Lima ⚡</div>
+            </div>
+            <button onClick={()=>setOpen(false)} style={{marginLeft:'auto',color:'rgba(255,255,255,0.8)',fontSize:18,background:'none',border:'none',cursor:'pointer',lineHeight:1}}>×</button>
+          </div>
+          <div style={{padding:'10px 12px',borderBottom:'1px solid #F3F4F6'}}>
+            <div style={{fontSize:11,color:'#9CA3AF',fontWeight:700,marginBottom:8,textTransform:'uppercase',letterSpacing:1}}>Ayuda rápida</div>
+            {helpItems.map(q=>(
+              <button key={q} onClick={()=>askHelp(q)} style={{
+                display:'block',width:'100%',textAlign:'left',
+                padding:'7px 10px',borderRadius:10,
+                fontSize:12,fontWeight:600,color:'#374151',
+                background:'none',border:'none',cursor:'pointer',
+                marginBottom:4,
+                transition:'background .15s',
+              }}
+              onMouseEnter={e=>e.target.style.background='#FFF7ED'}
+              onMouseLeave={e=>e.target.style.background='none'}
+              >{q}</button>
+            ))}
+          </div>
+          <div style={{padding:'10px 12px'}}>
+            <button onClick={startTour} style={{
+              display:'flex',alignItems:'center',gap:8,width:'100%',
+              padding:'8px 12px',borderRadius:10,
+              background:'#FFF7ED',border:'1.5px solid #FDBA74',
+              fontSize:12,fontWeight:700,color:'#92400E',cursor:'pointer',
+            }}>
+              🗺 Tour de la app
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Botón flotante */}
+      <button
+        onClick={()=>{setOpen(o=>!o);if(!open)say('¡Aquí estoy! ¿En qué te ayudo? 😊','happy');}}
+        style={{
+          position:'fixed',right:20,bottom:20,
+          width:52,height:52,
+          background:'#EA580C',border:'none',
+          borderRadius:'50%',cursor:'pointer',
+          display:'flex',alignItems:'center',justifyContent:'center',
+          boxShadow:'0 4px 20px rgba(234,88,12,0.5)',
+          fontSize:24,zIndex:9002,
+          pointerEvents:'all',
+          transition:'transform .2s',
+        }}
+        onMouseEnter={e=>e.currentTarget.style.transform='scale(1.1)'}
+        onMouseLeave={e=>e.currentTarget.style.transform='scale(1)'}
+      >
+        🤖
+      </button>
+    </div>
+  );
+}
 export default function App(){
   const[authUser,setAuthUser]=useState(null);
   const[profile,setProfile]=useState(null);
@@ -2528,8 +3124,20 @@ export default function App(){
   const[pid,setPid]=useState(null);
   const[showVerif,setShowVerif]=useState(false);
   const[toastData,setToastData]=useState(null);
+  const[showAuth,setShowAuth]=useState(false);
+  const[authReason,setAuthReason]=useState('');
 
   const toast=useCallback((msg,type='success')=>{setToastData({msg,type});setTimeout(()=>setToastData(null),3000);},[]);
+
+  const openAuth=(reason='')=>{setAuthReason(reason);setShowAuth(true);};
+  const requireAuth=(accion)=>{
+    if(!authUser){
+      openAuth('Regístrate para '+accion);
+      toast('Regístrate para '+accion+' 👋');
+      return false;
+    }
+    return true;
+  };
 
   useEffect(()=>{
     sb.auth.getSession().then(({data:{session}})=>{if(session?.user){setAuthUser(session.user);fetchProfile(session.user.id)}else setAuthLoading(false);});
@@ -2555,25 +3163,25 @@ export default function App(){
     window.scrollTo({top:0,behavior:'smooth'});
   };
   if(authLoading)return<><style dangerouslySetInnerHTML={{__html:G}}/><Spin/></>;
-  if(!authUser)return<><style dangerouslySetInnerHTML={{__html:G}}/><AuthScreen onAuth={u=>{setAuthUser(u);fetchProfile(u.id)}}/></>;
-
   return(
     <>
       <style dangerouslySetInnerHTML={{__html:G}}/>
       <div style={{minHeight:'100vh',background:'#F7F8FA',width:'100%'}}>
-        <Navbar page={page} nav={nav} profile={profile} onSignOut={signOut}/>
+        <Navbar page={page} nav={nav} profile={profile} onSignOut={signOut} requireAuth={requireAuth} openAuth={openAuth}/>
         <main style={{padding:'28px 32px'}}>
-{page==='home'&&<HomePage profile={profile} nav={nav} toast={toast} onStartVerification={()=>setShowVerif(true)}/>}          {page==='map'      &&<MapPage      nav={nav}/>}
-          {page==='job'      &&<JobDetailPage profile={profile} jid={jid} nav={nav} back={back} toast={toast}/>}
-          {page==='post-job' &&<PostJobPage  profile={profile} nav={nav} back={back} toast={toast}/>}
-          {page==='my-jobs'  &&<MyJobsPage   profile={profile} nav={nav}/>}
+          {page==='home'&&<HomePage profile={profile} nav={nav} toast={toast} onStartVerification={()=>setShowVerif(true)} requireAuth={requireAuth}/>}          {page==='map'      &&<MapPage      nav={nav}/>}
+          {page==='job'      &&<JobDetailPage profile={profile} jid={jid} nav={nav} back={back} toast={toast} requireAuth={requireAuth}/>}
+          {page==='post-job' &&<PostJobPage  profile={profile} nav={nav} back={back} toast={toast} authUser={authUser} openAuth={openAuth}/>}
+          {page==='my-jobs'  &&<MyJobsPage   profile={profile} nav={nav} authUser={authUser} openAuth={openAuth}/>}
           {page==='profile' && <ProfilePage currentProfile={profile} pid={pid} nav={nav} back={back} toast={toast}/>}
           {page==='admin'&&<AdminPage profile={profile} back={back} toast={toast}/>}
           {showVerif&&<VerificationModal profile={profile} onClose={()=>setShowVerif(false)} onDone={()=>{setShowVerif(false);fetchProfile(authUser.id);}} toast={toast}/>}
+          {showAuth&&<AuthScreen reason={authReason} onAuth={u=>{setAuthUser(u);fetchProfile(u.id);setShowAuth(false);}} onClose={()=>setShowAuth(false)}/>}
         </main>
       </div>
       <SocialProofNotif/>
-      {toastData&&<Toast msg={toastData.msg} type={toastData.type}/>}
+       {toastData&&<Toast msg={toastData.msg} type={toastData.type}/>}
+      <Cachu page={page} profile={profile}/>
     </>
   );
 }
