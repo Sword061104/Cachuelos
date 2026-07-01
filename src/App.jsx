@@ -21,6 +21,13 @@ const G = `
   .fade-up{animation:fadeUp .35s ease-out both}
   .fade-up-2{animation:fadeUp .35s .08s ease-out both}
   @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes cascadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes pageEnter{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes pageExit{from{opacity:1;transform:translateY(0)}to{opacity:0;transform:translateY(-16px)}}
+  @keyframes circleDraw{from{stroke-dashoffset:226}to{stroke-dashoffset:0}}
+  @keyframes checkDraw{from{stroke-dashoffset:100}to{stroke-dashoffset:0}}
+  @keyframes memberIn{from{opacity:0;transform:translateY(16px) scale(0.93)}to{opacity:1;transform:translateY(0) scale(1)}}
+  @keyframes stepIn{from{opacity:0;transform:translateX(-16px)}to{opacity:1;transform:translateX(0)}}
   .card{background:#fff;border-radius:20px;border:1.5px solid #EBEBEB;box-shadow:0 1px 4px rgba(0,0,0,.05),0 4px 16px rgba(0,0,0,.04);transition:border-color .2s,box-shadow .2s,transform .2s}
   .card-hover:hover{border-color:#EA580C;box-shadow:0 6px 28px rgba(234,88,12,.12);transform:translateY(-3px);cursor:pointer}
   .btn{display:inline-flex;align-items:center;gap:6px;font-weight:700;border-radius:14px;transition:all .18s;font-family:inherit;font-size:14px;padding:10px 20px;line-height:1}
@@ -116,14 +123,6 @@ function isInLimaModerna(lat,lng){
   }
   return inside;
 }
-const SOCIAL_NOTIFS = [
-  {name:'Carlos M.',uni:'UPC',earned:'S/ 80',job:'Mudanza en Miraflores',time:'hace 8 min'},
-  {name:'Lucía T.',uni:'PUCP',earned:'S/ 50',job:'Limpieza en San Isidro',time:'hace 15 min'},
-  {name:'Diego R.',uni:'ULima',earned:'S/ 35',job:'Paseo de perros en Surco',time:'hace 22 min'},
-  {name:'Valeria O.',uni:'Científica',earned:'S/ 120',job:'Cocina en Jesús María',time:'hace 31 min'},
-  {name:'Andrés P.',uni:'San Marcos',earned:'S/ 45',job:'Delivery en San Borja',time:'hace 40 min'},
-];
-
 // ─── UTILS ────────────────────────────────────────────────────────────────────
 function distKm(a,b){const R=6371,dLat=(b.lat-a.lat)*Math.PI/180,dLon=(b.lng-a.lng)*Math.PI/180;const x=Math.sin(dLat/2)**2+Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dLon/2)**2;return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));}
 function fmtDist(km){return km<1?`${Math.round(km*1000)}m`:`${km.toFixed(1)}km`}
@@ -183,7 +182,17 @@ function CatTag({cat}){
   </span>;
 }
 function StatusTag({status}){const s=STATUS[status]||STATUS.open;return <span style={{display:'inline-flex',alignItems:'center',gap:4,background:s.bg,color:s.color,borderRadius:20,padding:'3px 10px',fontSize:11,fontWeight:700}}><span style={{width:6,height:6,borderRadius:'50%',background:s.color,display:'inline-block'}}/>{s.label}</span>}
-function Avatar({name,size=36,color='#EA580C'}){const init=(name||'?').split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase();return <div style={{width:size,height:size,borderRadius:'50%',background:color,color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:800,fontSize:size*.38,flexShrink:0}}>{init}</div>}
+function Avatar({name,size=36,color='#EA580C',photoUrl}){
+  const init=(name||'?').split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase();
+  if(photoUrl) return(
+    <div style={{width:size,height:size,borderRadius:'50%',flexShrink:0,overflow:'hidden',border:`2px solid white`,boxShadow:'0 2px 8px rgba(0,0,0,.1)'}}>
+      <img src={photoUrl} alt={name} style={{width:'100%',height:'100%',objectFit:'cover'}}
+        onError={e=>{e.target.style.display='none';e.target.parentNode.innerHTML=`<div style="width:${size}px;height:${size}px;borderRadius:50%;background:${color};color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:${size*.38}px">${init}</div>`;}}
+      />
+    </div>
+  );
+  return <div style={{width:size,height:size,borderRadius:'50%',background:color,color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:800,fontSize:size*.38,flexShrink:0}}>{init}</div>;
+}
 function Stars({value=0,onRate,size=18}){const[hov,setHov]=useState(0);return <div style={{display:'flex',gap:2}}>{[1,2,3,4,5].map(n=><span key={n} onClick={()=>onRate?.(n)} onMouseEnter={()=>onRate&&setHov(n)} onMouseLeave={()=>onRate&&setHov(0)} style={{fontSize:size,color:n<=(hov||value)?'#F59E0B':'#E5E7EB',cursor:onRate?'pointer':'default',lineHeight:1}}>★</span>)}</div>;}
 function VerifiedBadge({status}){if(status==='verified')return <span style={{display:'inline-flex',alignItems:'center',gap:4,background:'#EFF6FF',color:'#1D4ED8',border:'1px solid #BFDBFE',borderRadius:20,padding:'2px 10px',fontSize:11,fontWeight:700}}><ShieldCheck size={11}/>Verificado</span>;if(status==='reviewing')return <span style={{display:'inline-flex',alignItems:'center',gap:4,background:'#FFFBEB',color:'#92400E',border:'1px solid #FDE68A',borderRadius:20,padding:'2px 10px',fontSize:11,fontWeight:700}}><AlertCircle size={11}/>En revisión</span>;return <span style={{display:'inline-flex',alignItems:'center',gap:4,background:'#F3F4F6',color:'#6B7280',border:'1px solid #E5E7EB',borderRadius:20,padding:'2px 10px',fontSize:11,fontWeight:700}}><AlertCircle size={11}/>Sin verificar</span>;}
 function RecommendedBadge({reason}){
@@ -265,29 +274,6 @@ function SecurityBanner({onClose}){
           <CheckCircle size={11}/> Pagos protegidos
         </span>
         <button onClick={onClose} style={{color:'#6B7280',fontSize:18,lineHeight:1,padding:'2px 6px',fontWeight:700}}>×</button>
-      </div>
-    </div>
-  );
-}
-
-// ─── SOCIAL PROOF ─────────────────────────────────────────────────────────────
-function SocialProofNotif(){
-  const[visible,setVisible]=useState(false);
-  const[idx,setIdx]=useState(0);
-  useEffect(()=>{const t=setTimeout(()=>setVisible(true),4000);return()=>clearTimeout(t)},[]);
-  useEffect(()=>{if(!visible)return;const t=setTimeout(()=>setVisible(false),5000);return()=>clearTimeout(t)},[visible]);
-  useEffect(()=>{if(visible)return;const t=setTimeout(()=>{setIdx(i=>(i+1)%SOCIAL_NOTIFS.length);setVisible(true)},12000);return()=>clearTimeout(t)},[visible]);
-  if(!visible)return null;
-  const n=SOCIAL_NOTIFS[idx];
-  return(
-    <div style={{position:'fixed',bottom:24,left:24,zIndex:8888,background:'#fff',borderRadius:16,padding:'14px 18px',boxShadow:'0 8px 32px rgba(0,0,0,.14)',border:'1.5px solid #F0F1F3',maxWidth:300,animation:'notifIn .4s ease-out both'}}>
-      <div style={{display:'flex',alignItems:'center',gap:10}}>
-        <div style={{width:38,height:38,borderRadius:'50%',background:'linear-gradient(135deg,#EA580C,#F97316)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:800,fontSize:15,flexShrink:0}}>{n.name[0]}</div>
-        <div style={{flex:1,minWidth:0}}>
-          <div style={{fontWeight:700,fontSize:13,color:'#111827'}}>{n.name} · <span style={{color:'#6B7280',fontWeight:500}}>{n.uni}</span></div>
-          <div style={{fontSize:12,color:'#6B7280',marginTop:1}}>acaba de ganar <strong style={{color:'#16A34A'}}>{n.earned}</strong></div>
-          <div style={{fontSize:11,color:'#9CA3AF',marginTop:1}}>"{n.job}" · {n.time}</div>
-        </div>
       </div>
     </div>
   );
@@ -1160,6 +1146,7 @@ function AuthScreen({onAuth,reason,onClose}){
 // ─── NAVBAR ───────────────────────────────────────────────────────────────────
 function Navbar({page,nav,profile,onSignOut,requireAuth,openAuth}){
   const isEmp=profile?.role==='empleador';
+  const[menuOpen,setMenuOpen]=useState(false);
   return(
     <nav style={{background:'#fff',borderBottom:'1.5px solid #F0F1F3',position:'sticky',top:0,zIndex:200}}>
       <div style={{padding:'0 32px',height:60,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
@@ -1201,8 +1188,50 @@ function Navbar({page,nav,profile,onSignOut,requireAuth,openAuth}){
               </button>
             </>
           )}
+          <button
+            onClick={()=>setMenuOpen(o=>!o)}
+            style={{width:36,height:36,borderRadius:10,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:5,border:'1.5px solid #E5E7EB',background:'#fff',marginLeft:8,transition:'all .15s'}}
+            onMouseEnter={e=>e.currentTarget.style.borderColor='#EA580C'}
+            onMouseLeave={e=>e.currentTarget.style.borderColor='#E5E7EB'}
+          >
+            {menuOpen?(
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#EA580C" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            ):(
+              <>
+                <span style={{width:18,height:2,background:'#374151',borderRadius:1,display:'block'}}/>
+                <span style={{width:18,height:2,background:'#374151',borderRadius:1,display:'block'}}/>
+                <span style={{width:18,height:2,background:'#374151',borderRadius:1,display:'block'}}/>
+              </>
+            )}
+          </button>
         </div>
       </div>
+      {menuOpen&&(
+        <div style={{
+          position:'absolute',top:60,right:0,left:0,
+          background:'#fff',
+          borderBottom:'1.5px solid #F0F1F3',
+          zIndex:199,
+          animation:'slideDown .25s ease-out both',
+          padding:'8px 0',
+        }}>
+          <button
+            onClick={()=>{setMenuOpen(false);nav('about');}}
+            style={{
+              display:'flex',alignItems:'center',gap:12,
+              width:'100%',padding:'16px 32px',
+              fontSize:22,fontWeight:700,color:'#111827',
+              background:'none',border:'none',cursor:'pointer',
+              textAlign:'left',transition:'background .15s',
+            }}
+            onMouseEnter={e=>e.currentTarget.style.background='#FFF7ED'}
+            onMouseLeave={e=>e.currentTarget.style.background='none'}
+          >
+            Quiénes somos
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#EA580C" strokeWidth="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+        </div>
+      )}
     </nav>
   );
 }
@@ -1210,12 +1239,15 @@ function Navbar({page,nav,profile,onSignOut,requireAuth,openAuth}){
 // ─── JOB CARD ─────────────────────────────────────────────────────────────────
 function JobCard({job,nav,delay=0,dist,recommended,recReason}){
   return(
-    <div className="card card-hover fade-up" style={{padding:20,animationDelay:`${delay*40}ms`,textAlign:'left',border:recommended?'1.5px solid #C4B5FD':undefined}} onClick={()=>nav('job',{jid:job.id})}>
+    <div className="card card-hover" style={{padding:20,animationDelay:`${delay*80}ms`,animation:'cascadeUp .4s ease-out both',textAlign:'left',border:recommended?'1.5px solid #C4B5FD':undefined}} onClick={()=>nav('job',{jid:job.id})}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}>
         <div style={{flex:1,minWidth:0,textAlign:'left'}}>
           <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:8}}><CatTag cat={job.category}/><StatusTag status={job.status}/>{recommended&&<RecommendedBadge reason={recReason}/>}</div>
           <h3 style={{fontWeight:600,fontSize:14,color:'#374151',lineHeight:1.45,marginBottom:3,textAlign:'left'}}>{job.title}</h3>
-          <p style={{fontSize:12,color:'#9CA3AF',textAlign:'left',display:'flex',alignItems:'center',gap:4}}><Users size={11}/>por {job.poster_name}</p>
+          <p style={{fontSize:12,color:'#9CA3AF',textAlign:'left',display:'flex',alignItems:'center',gap:6}}>
+            <Avatar name={job.poster_name} size={18} color="#EA580C" photoUrl={job.poster_photo_url}/>
+            por {job.poster_name}
+          </p>
         </div>
         <div style={{textAlign:'right',marginLeft:14,flexShrink:0}}>
           <div style={{fontSize:20,fontWeight:700,color:'#EA580C'}}>S/{job.price}</div>
@@ -1268,6 +1300,23 @@ function RecommendedSection({jobs, prefs, nav}){
   );
 }
 
+function useCountUp(target, duration=1200, trigger=true){
+  const[count,setCount]=useState(0);
+  useEffect(()=>{
+    if(!trigger)return;
+    let start=0;
+    const steps=40;
+    const increment=target/steps;
+    const interval=setInterval(()=>{
+      start+=increment;
+      if(start>=target){setCount(target);clearInterval(interval);}
+      else setCount(Math.floor(start));
+    },duration/steps);
+    return()=>clearInterval(interval);
+  },[target,trigger]);
+  return count;
+}
+
 // ─── HOME ─────────────────────────────────────────────────────────────────────
 function HomePage({profile,nav,toast,onStartVerification,requireAuth}){
   const[jobs,setJobs]=useState([]);
@@ -1283,6 +1332,13 @@ function HomePage({profile,nav,toast,onStartVerification,requireAuth}){
   const[leafErr,setLeafErr]=useState(false);
   const[selId,setSelId]=useState(null);
   const[showBanner,setShowBanner]=useState(false);
+  const[statsVisible,setStatsVisible]=useState(false);
+  const statsRef=useRef(null);
+  useEffect(()=>{
+    const obs=new IntersectionObserver(([e])=>{if(e.isIntersecting)setStatsVisible(true);},{threshold:0.3});
+    if(statsRef.current)obs.observe(statsRef.current);
+    return()=>obs.disconnect();
+  },[]);
   useEffect(()=>{
   if(profile?.verification_status==='verified') setShowBanner(true);
   else setShowBanner(false);
@@ -1302,6 +1358,10 @@ function HomePage({profile,nav,toast,onStartVerification,requireAuth}){
   // Preferencias del trabajador: combina categorías marcadas como favoritas (profile.skills)
   // con el historial real de trabajos completados (categorías + distritos)
   const prefs = getWorkerPreferences(profile, myCompletedJobs);
+
+  const countJobs=useCountUp(jobs.length,1000,statsVisible);
+  const countCompleted=useCountUp(allJobs.filter(j=>j.status==='completed').length,1000,statsVisible);
+  const countCats=useCountUp(Object.keys(CAT).length,800,statsVisible);
 
   const fetchJobs=async()=>{
     setLoading(true);
@@ -1433,8 +1493,8 @@ function HomePage({profile,nav,toast,onStartVerification,requireAuth}){
           <div style={{position:'absolute',inset:0,background:'linear-gradient(to right, #FFF3DF 0%, rgba(255,243,223,0.45) 8%, rgba(255,243,223,0) 22%)',pointerEvents:'none',zIndex:2}}/>
         </div>
       </div>
-      <div className="fade-up-2" style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:24}}>
-        {[{icon:<Briefcase size={20} color="#EA580C"/>,value:jobs.length,label:'Trabajos activos',sub:'ahora'},{icon:<CheckCircle size={20} color="#16A34A"/>,value:allJobs.filter(j=>j.status==='completed').length,label:'Completados',sub:'en total'},{icon:<LayoutGrid size={20} color="#5B21B6"/>,value:Object.keys(CAT).length,label:'Categorías',sub:'disponibles'},{icon:<Users size={20} color="#0369A1"/>,value:'38+',label:'Trabajadores',sub:'activos 🔥'}].map(s=>(
+      <div ref={statsRef} className="fade-up-2" style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:24}}>
+        {[{icon:<Briefcase size={20} color="#EA580C"/>,value:countJobs,label:'Trabajos activos',sub:'ahora'},{icon:<CheckCircle size={20} color="#16A34A"/>,value:countCompleted,label:'Completados',sub:'en total'},{icon:<LayoutGrid size={20} color="#5B21B6"/>,value:countCats,label:'Categorías',sub:'disponibles'},{icon:<Users size={20} color="#0369A1"/>,value:'38+',label:'Trabajadores',sub:'activos 🔥'}].map(s=>(
           <div key={s.label} className="card" style={{padding:'18px 16px',textAlign:'center',display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
             <div style={{background:'#F9FAFB',borderRadius:10,padding:8,marginBottom:2}}>{s.icon}</div>
             <div style={{fontSize:22,fontWeight:800,color:'#EA580C',lineHeight:1}}>{s.value}</div>
@@ -1540,6 +1600,7 @@ function JobDetailPage({profile,jid,nav,back,toast,requireAuth}){
   const[rating,setRating]=useState(0);
   const[comment,setComment]=useState('');
   const[modal,setModal]=useState(null);
+  const[showSuccess,setShowSuccess]=useState(false);
   const[leafOk,setLeafOk]=useState(!!window.L);
   const[leafErr,setLeafErr]=useState(false);
   const pollRef=useRef(null);
@@ -1614,16 +1675,35 @@ function JobDetailPage({profile,jid,nav,back,toast,requireAuth}){
     setActing(true);
     const reviewedId=isPoster?job.worker_id:job.poster_id;
     const ratedField=isPoster?'poster_rated':'worker_rated';
-    await sb.from('reviews').insert({job_id:jid,reviewer_id:profile.id,reviewer_name:profile.full_name,reviewed_id:reviewedId,rating,comment});
+    await sb.from('reviews').insert({job_id:jid,reviewer_id:profile.id,reviewer_name:profile.full_name,reviewer_photo_url:profile.photo_url||null,reviewed_id:reviewedId,rating,comment});
     await sb.from('jobs').update({[ratedField]:true}).eq('id',jid);
     setJob(prev=>({...prev,[ratedField]:true}));
-    setReviews(prev=>[{id:Date.now(),reviewer_name:profile.full_name,rating,comment},...prev]);
+    setReviews(prev=>[{id:Date.now(),reviewer_name:profile.full_name,reviewer_photo_url:profile.photo_url||null,rating,comment},...prev]);
     toast('⭐ ¡Calificación enviada!');
     setRating(0);setComment('');setActing(false);
   };
 
   return(
     <div className="fade-up" style={{maxWidth:740,margin:'0 auto'}}>
+      {showSuccess&&(
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.6)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',animation:'fadeUp .2s ease-out'}}>
+          <div style={{background:'#fff',borderRadius:24,padding:40,textAlign:'center',display:'flex',flexDirection:'column',alignItems:'center',gap:12}}>
+            <svg width="80" height="80" viewBox="0 0 80 80">
+              <circle cx="40" cy="40" r="36" fill="none" stroke="#E5E7EB" strokeWidth="3"/>
+              <circle cx="40" cy="40" r="36" fill="none" stroke="#16A34A" strokeWidth="3"
+                strokeDasharray="226" strokeDashoffset="0"
+                strokeLinecap="round" transform="rotate(-90 40 40)"
+                style={{animation:'circleDraw .6s ease-out forwards'}}/>
+              <polyline points="26,40 36,52 56,30" fill="none" stroke="#16A34A"
+                strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"
+                strokeDasharray="100" strokeDashoffset="0"
+                style={{animation:'checkDraw .4s ease-out .5s forwards'}}/>
+            </svg>
+            <div style={{fontSize:18,fontWeight:800,color:'#111827'}}>¡Pago liberado!</div>
+            <div style={{fontSize:14,color:'#6B7280'}}>El trabajo fue completado exitosamente</div>
+          </div>
+        </div>
+      )}
       <button className="btn-ghost" style={{marginBottom:20,paddingLeft:0}} onClick={back}>← Volver</button>
 
       <ConfirmModal data={modal} onClose={()=>setModal(null)} loading={acting}/>
@@ -1668,8 +1748,8 @@ function JobDetailPage({profile,jid,nav,back,toast,requireAuth}){
 
           {/* Personas */}
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:20}}>
-            <PersonBox label="Publicado por" name={job.poster_name} color="#EA580C"/>
-            {job.worker_id&&<PersonBox label="Trabajador" name={job.worker_name} color="#16A34A"/>}
+            <PersonBox label="Publicado por" name={job.poster_name} color="#EA580C" photoUrl={job.poster_photo_url} userId={job.poster_id} onNavigate={nav}/>
+            {job.worker_id&&<PersonBox label="Trabajador" name={job.worker_name} color="#16A34A" photoUrl={job.worker_photo_url} userId={job.worker_id} onNavigate={nav}/>}
           </div>
 
           {/* Desglose de pago */}
@@ -1718,7 +1798,7 @@ function JobDetailPage({profile,jid,nav,back,toast,requireAuth}){
             toast('Debes verificar tu identidad para aceptar trabajos','error');
             return;
                  }
-               setModal({icon:'🤝',title:'¿Aceptar este trabajo?',desc:`Te comprometes a realizar "${job.title}" por S/${job.price}. Coordina con el empleador para los detalles.`,confirmLabel:'Sí, aceptar',btnClass:'btn-orange',onConfirm:()=>updateJob({status:'accepted',worker_id:profile.id,worker_name:profile.full_name,worker_email:profile.email}).then(()=>toast('🤝 ¡Trabajo aceptado! Coordina con el empleador.'))});
+               setModal({icon:'🤝',title:'¿Aceptar este trabajo?',desc:`Te comprometes a realizar "${job.title}" por S/${job.price}. Coordina con el empleador para los detalles.`,confirmLabel:'Sí, aceptar',btnClass:'btn-orange',onConfirm:()=>updateJob({status:'accepted',worker_id:profile.id,worker_name:profile.full_name,worker_email:profile.email,worker_photo_url:profile.photo_url||null}).then(()=>toast('🤝 ¡Trabajo aceptado! Coordina con el empleador.'))});
                 }}                disabled={acting}>
                 ✅ Aceptar trabajo — S/{job.price}
               </button>
@@ -1771,7 +1851,11 @@ function JobDetailPage({profile,jid,nav,back,toast,requireAuth}){
                 Revisa que todo esté correcto y confirma para liberar el pago de <strong style={{color:'#16A34A'}}>S/{(job.price*.9).toFixed(2)}</strong> al trabajador.
               </p>
               <button className="btn-green" style={{width:'100%',justifyContent:'center',padding:14,fontSize:15}}
-                onClick={()=>setModal({icon:'✅',title:'Confirmar trabajo completado',desc:`¿Confirmas que "${job.title}" fue realizado correctamente? Esto liberará el pago al trabajador.`,confirmLabel:'✅ Confirmar y liberar pago',btnClass:'btn-green',onConfirm:()=>updateJob({status:'completed',payment_status:'released'}).then(()=>toast('✅ ¡Pago liberado! Trabajo completado. Ahora pueden calificarse.'))})}
+                onClick={()=>setModal({icon:'✅',title:'Confirmar trabajo completado',desc:`¿Confirmas que "${job.title}" fue realizado correctamente? Esto liberará el pago al trabajador.`,confirmLabel:'✅ Confirmar y liberar pago',btnClass:'btn-green',onConfirm:()=>updateJob({status:'completed',payment_status:'released'}).then(()=>{
+                  setShowSuccess(true);
+                  toast('✅ ¡Pago liberado! Trabajo completado. Ahora pueden calificarse.');
+                  setTimeout(()=>setShowSuccess(false),2500);
+                })})}
                 disabled={acting}>
                 ✅ Confirmar y liberar pago — S/{(job.price*.9).toFixed(2)}
               </button>
@@ -1823,7 +1907,7 @@ function JobDetailPage({profile,jid,nav,back,toast,requireAuth}){
               {reviews.map(r=>(
                 <div key={r.id} style={{background:'#F9FAFB',borderRadius:14,padding:14,marginBottom:10}}>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
-                    <div style={{display:'flex',alignItems:'center',gap:8}}><Avatar name={r.reviewer_name} size={28} color='#6B7280'/><span style={{fontWeight:600,fontSize:13}}>{r.reviewer_name}</span></div>
+                    <div style={{display:'flex',alignItems:'center',gap:8}}><Avatar name={r.reviewer_name} size={28} color='#6B7280' photoUrl={r.reviewer_photo_url}/><span style={{fontWeight:600,fontSize:13}}>{r.reviewer_name}</span></div>
                     <Stars value={r.rating} size={13}/>
                   </div>
                   {r.comment&&<p style={{fontSize:13,color:'#6B7280',marginLeft:36}}>{r.comment}</p>}
@@ -1899,6 +1983,7 @@ function JobDetailPage({profile,jid,nav,back,toast,requireAuth}){
   };
 
   const otherName=profile.id===job.poster_id?job.worker_name:job.poster_name;
+  const otherPhotoUrl=profile.id===job.poster_id?job.worker_photo_url:job.poster_photo_url;
 
   return(
     <div style={{marginTop:24}}>
@@ -1908,9 +1993,7 @@ function JobDetailPage({profile,jid,nav,back,toast,requireAuth}){
         style={{width:'100%',display:'flex',alignItems:'center',justifyContent:'space-between',background:open?'#EA580C':'#FFF7ED',border:'1.5px solid #EA580C',borderRadius:open?'16px 16px 0 0':16,padding:'12px 18px',cursor:'pointer',transition:'all .2s'}}
       >
         <div style={{display:'flex',alignItems:'center',gap:10}}>
-          <div style={{width:32,height:32,borderRadius:'50%',background:open?'rgba(255,255,255,.2)':'#EA580C',display:'flex',alignItems:'center',justifyContent:'center'}}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={open?'#EA580C':'#fff'} strokeWidth="2.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-          </div>
+          <Avatar name={otherName} size={32} color="#EA580C" photoUrl={otherPhotoUrl}/>
           <div style={{textAlign:'left'}}>
             <div style={{fontWeight:700,fontSize:14,color:open?'#fff':'#EA580C'}}>Chat con {otherName}</div>
             <div style={{fontSize:11,color:open?'rgba(255,255,255,.8)':'#9CA3AF'}}>Coordina los detalles del trabajo</div>
@@ -1981,11 +2064,22 @@ function JobDetailPage({profile,jid,nav,back,toast,requireAuth}){
   );
 }
 
-function PersonBox({label,name,color='#EA580C'}){
+function PersonBox({label,name,color='#EA580C',photoUrl,userId,onNavigate}){
   return(
-    <div style={{background:'#F9FAFB',border:'1.5px solid #E5E7EB',borderRadius:14,padding:14}}>
+    <div
+      onClick={()=>userId&&onNavigate&&onNavigate('profile',{pid:userId})}
+      style={{background:'#F9FAFB',border:'1.5px solid #E5E7EB',borderRadius:14,padding:14,cursor:userId?'pointer':'default',transition:'border-color .15s'}}
+      onMouseEnter={e=>{if(userId)e.currentTarget.style.borderColor='#EA580C'}}
+      onMouseLeave={e=>{e.currentTarget.style.borderColor='#E5E7EB'}}
+    >
       <div style={{fontSize:11,color:'#9CA3AF',fontWeight:700,textTransform:'uppercase',letterSpacing:'.5px',marginBottom:8}}>{label}</div>
-      <div style={{display:'flex',alignItems:'center',gap:10}}><Avatar name={name} size={32} color={color}/><span style={{fontWeight:600,fontSize:13,color:'#111827'}}>{name||'—'}</span></div>
+      <div style={{display:'flex',alignItems:'center',gap:10}}>
+        <Avatar name={name} size={32} color={color} photoUrl={photoUrl}/>
+        <div>
+          <span style={{fontWeight:600,fontSize:13,color:'#111827'}}>{name||'—'}</span>
+          {userId&&<div style={{fontSize:11,color:'#EA580C',fontWeight:600,marginTop:2}}>Ver perfil →</div>}
+        </div>
+      </div>
     </div>
   );
 }
@@ -2094,6 +2188,7 @@ function PostJobPage({profile,nav,back,toast,authUser,openAuth}){
       district:form.location||null,
       latitude:loc.lat,longitude:loc.lng,status:'open',
       poster_id:profile.id,poster_name:profile.full_name,poster_email:profile.email,
+      poster_photo_url:profile.photo_url||null,
       commission_amount:p*.1,worker_earnings:p*.9,
       worker_finished:false,
       schedule_start:form.schedule_start||null,
@@ -2441,7 +2536,7 @@ function ProfilePage({currentProfile,pid,nav,back,toast}){
             <h2 style={{fontWeight:700,fontSize:16,display:'flex',alignItems:'center',gap:8}}><Star size={16} color="#F59E0B" fill="#F59E0B"/>Calificaciones recibidas</h2>
             <Stars value={Math.round(avg)} size={14}/>
           </div>
-          {reviews.map(r=>(<div key={r.id} style={{background:'#F9FAFB',borderRadius:14,padding:14,marginBottom:10}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}><div style={{display:'flex',alignItems:'center',gap:8}}><Avatar name={r.reviewer_name} size={26} color='#6B7280'/><span style={{fontWeight:700,fontSize:13}}>{r.reviewer_name}</span></div><Stars value={r.rating} size={13}/></div>{r.comment&&<p style={{fontSize:13,color:'#6B7280',marginLeft:34}}>{r.comment}</p>}</div>))}
+          {reviews.map(r=>(<div key={r.id} style={{background:'#F9FAFB',borderRadius:14,padding:14,marginBottom:10}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}><div style={{display:'flex',alignItems:'center',gap:8}}><Avatar name={r.reviewer_name} size={26} color='#6B7280' photoUrl={r.reviewer_photo_url}/><span style={{fontWeight:700,fontSize:13}}>{r.reviewer_name}</span></div><Stars value={r.rating} size={13}/></div>{r.comment&&<p style={{fontSize:13,color:'#6B7280',marginLeft:34}}>{r.comment}</p>}</div>))}
         </div>
       )}
       {worked.length>0&&(
@@ -2708,10 +2803,11 @@ function Cachu({page, profile}){
   const[tourActive,setTourActive]=useState(false);
 
   const say=(txt,m='happy',dur=4000)=>{
-    setMsg(txt); setMood(m); setShowMsg(true);
-    clearTimeout(msgTO.current);
-    msgTO.current=setTimeout(()=>setShowMsg(false),dur);
-  };
+  if(tourActive&&dur!==99999) return;
+  setMsg(txt); setMood(m); setShowMsg(true);
+  clearTimeout(msgTO.current);
+  msgTO.current=setTimeout(()=>setShowMsg(false),dur);
+   };
 
   const askHelp=(q)=>{
     setOpen(false);
@@ -2729,7 +2825,7 @@ function Cachu({page, profile}){
       highlightRef.current.style.outlineOffset='';
       highlightRef.current=null;
     }
-  };
+  };  
 
   const findTourTarget=(target)=>target?document.querySelector(`[data-tour="${target}"]`):null;
 
@@ -3114,6 +3210,290 @@ function Cachu({page, profile}){
     </div>
   );
 }
+function MessageNotif({authUser, onNavigate}){
+  const[notif,setNotif]=useState(null);
+  const timeoutRef=useRef(null);
+
+  useEffect(()=>{
+    if(!authUser?.id) return;
+
+    // Escucha TODOS los mensajes nuevos donde el usuario es parte del job
+    const channel=sb.channel('message-notifs')
+      .on('postgres_changes',{
+        event:'INSERT',
+        schema:'public',
+        table:'messages',
+      },async(payload)=>{
+        const m=payload.new;
+        // No notificar si el mensaje es mío
+        if(m.sender_id===authUser.id) return;
+
+        // Verificar que el usuario es parte de ese job
+        const{data:job}=await sb.from('jobs').select('id,title,poster_id,worker_id,poster_photo_url,worker_photo_url').eq('id',m.job_id).single();
+        if(!job) return;
+        if(job.poster_id!==authUser.id&&job.worker_id!==authUser.id) return;
+
+        // Mostrar notificación
+        clearTimeout(timeoutRef.current);
+        setNotif({
+          senderName:m.sender_name,
+          content:m.content,
+          jobId:m.job_id,
+          jobTitle:job.title,
+        });
+        timeoutRef.current=setTimeout(()=>setNotif(null),4000);
+      })
+      .subscribe();
+
+    return()=>{sb.removeChannel(channel);clearTimeout(timeoutRef.current);};
+  },[authUser?.id]);
+
+  if(!notif) return null;
+
+  return(
+    <div
+      onClick={()=>{setNotif(null);onNavigate('job',{jid:notif.jobId});}}
+      style={{
+        position:'fixed',bottom:80,left:24,zIndex:8889,
+        background:'#fff',borderRadius:16,
+        padding:'12px 16px',
+        boxShadow:'0 8px 32px rgba(0,0,0,.14)',
+        border:'1.5px solid #F0F1F3',
+        maxWidth:300,minWidth:240,
+        animation:'notifIn .4s ease-out both',
+        cursor:'pointer',
+        transition:'transform .15s',
+      }}
+      onMouseEnter={e=>e.currentTarget.style.transform='translateY(-2px)'}
+      onMouseLeave={e=>e.currentTarget.style.transform='translateY(0)'}
+    >
+      <div style={{display:'flex',alignItems:'center',gap:10}}>
+        <div style={{width:38,height:38,borderRadius:'50%',background:'linear-gradient(135deg,#EA580C,#F97316)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:800,fontSize:15,flexShrink:0}}>
+          {notif.senderName?.[0]?.toUpperCase()||'?'}
+        </div>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:2}}>
+            <span style={{fontWeight:700,fontSize:13,color:'#111827'}}>{notif.senderName}</span>
+            <span style={{fontSize:10,color:'#9CA3AF',background:'#FFF7ED',border:'1px solid #FDBA74',borderRadius:20,padding:'1px 6px',fontWeight:600}}>💬 mensaje</span>
+          </div>
+          <div style={{fontSize:12,color:'#6B7280',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+            {notif.content.length>50?notif.content.slice(0,50)+'...':notif.content}
+          </div>
+          <div style={{fontSize:11,color:'#EA580C',fontWeight:600,marginTop:2}}>
+            {notif.jobTitle?.length>35?notif.jobTitle.slice(0,35)+'...':notif.jobTitle}
+          </div>
+        </div>
+        <button
+          onClick={e=>{e.stopPropagation();setNotif(null);}}
+          style={{color:'#9CA3AF',fontSize:16,lineHeight:1,padding:'2px 4px',flexShrink:0}}
+        >×</button>
+      </div>
+    </div>
+  );
+}
+function AboutSection({nav}){
+  const secRef=useRef(null);
+  const [visible,setVisible]=useState(false);
+  const canvasRef=useRef(null);
+  const animRef=useRef(null);
+
+  useEffect(()=>{
+    const obs=new IntersectionObserver(([e])=>{
+      if(e.isIntersecting){setVisible(true);obs.disconnect();}
+    },{threshold:0.15});
+    if(secRef.current)obs.observe(secRef.current);
+    return()=>obs.disconnect();
+  },[]);
+
+  useEffect(()=>{
+    if(!visible||!canvasRef.current)return;
+    const cvs=canvasRef.current;
+    const ctx=cvs.getContext('2d');
+    let W,H,particles=[];
+    const resize=()=>{
+      W=cvs.width=cvs.offsetWidth;
+      H=cvs.height=cvs.offsetHeight;
+    };
+    const createP=()=>{
+      particles=[];
+      for(let i=0;i<28;i++) particles.push({x:Math.random()*W,y:Math.random()*H,vx:(Math.random()-0.5)*0.3,vy:(Math.random()-0.5)*0.3,r:Math.random()*2+1,o:Math.random()*0.4+0.1});
+    };
+    const draw=()=>{
+      ctx.clearRect(0,0,W,H);
+      particles.forEach((p,i)=>{
+        p.x+=p.vx;p.y+=p.vy;
+        if(p.x<0||p.x>W)p.vx*=-1;
+        if(p.y<0||p.y>H)p.vy*=-1;
+        ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+        ctx.fillStyle=`rgba(234,88,12,${p.o})`;ctx.fill();
+        particles.forEach((q,j)=>{
+          if(j<=i)return;
+          const dx=p.x-q.x,dy=p.y-q.y,d=Math.sqrt(dx*dx+dy*dy);
+          if(d<120){ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(q.x,q.y);ctx.strokeStyle=`rgba(234,88,12,${0.12*(1-d/120)})`;ctx.lineWidth=0.8;ctx.stroke();}
+        });
+      });
+      animRef.current=requestAnimationFrame(draw);
+    };
+    resize();createP();draw();
+    window.addEventListener('resize',()=>{resize();createP();});
+    return()=>{cancelAnimationFrame(animRef.current);window.removeEventListener('resize',resize);};
+  },[visible]);
+
+  const MEMBERS=[
+    {init:'PA',name:'Paolo',role:'Dev. Full Stack',color:'#EA580C',badge:'LEAD',tip:'Lidera el desarrollo'},
+    {init:'CA',name:'Carolina',role:'UX / Research',color:'#7C3AED',tip:'Diseño y research'},
+    {init:'AL',name:'Alexa',role:'Marketing',color:'#0369A1',tip:'Estrategia de marca'},
+    {init:'GI',name:'Gian',role:'Finanzas',color:'#16A34A',tip:'Modelo financiero'},
+  ];
+
+  const STEPS=[
+    {n:'1',title:'Investigamos',desc:'Entendemos el problema y el contexto real.'},
+    {n:'2',title:'Diseñamos',desc:'Creamos experiencias simples y centradas en el usuario.'},
+    {n:'3',title:'Desarrollamos',desc:'Construimos con tecnología moderna y buenas prácticas.'},
+    {n:'4',title:'Validamos',desc:'Probamos, medimos y mejoramos continuamente.'},
+  ];
+
+  const anim=(delay)=>visible?{animation:`fadeUp 0.45s ease-out ${delay}ms both`}:{opacity:0};
+  const memberAnim=(i)=>visible?{animation:`memberIn 0.4s ease-out ${680+i*110}ms both`}:{opacity:0};
+  const stepAnim=(i)=>visible?{animation:`stepIn 0.4s ease-out ${1300+i*120}ms both`}:{opacity:0};
+
+  return(
+    <div className="fade-up" style={{maxWidth:1100,margin:'0 auto'}}>
+      <button
+        onClick={()=>nav('home')}
+        style={{display:'flex',alignItems:'center',gap:6,color:'#9CA3AF',fontSize:13,fontWeight:600,marginBottom:20,padding:0,background:'none',border:'none',cursor:'pointer'}}
+      >
+        ← Volver
+      </button>
+      <div ref={secRef} style={{background:'#0F172A',borderRadius:24,padding:'40px',position:'relative',overflow:'hidden',marginTop:0}}>
+      <canvas ref={canvasRef} style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none'}}/>
+
+      {/* Línea naranja animada */}
+      <div style={{height:3,background:'#1E293B',borderRadius:2,marginBottom:36,overflow:'hidden',position:'relative'}}>
+        <div style={{height:'100%',background:'#EA580C',borderRadius:2,width:visible?'100%':'0',transition:'width 0.8s ease-out',position:'relative'}}>
+          <div style={{width:10,height:10,background:'#EA580C',borderRadius:'50%',position:'absolute',right:-4,top:-3.5}}/>
+        </div>
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1.1fr',gap:40,alignItems:'start',position:'relative',zIndex:1}}>
+        {/* Columna izquierda */}
+        <div>
+          <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:8,...anim(300)}}>
+            <div style={{width:40,height:40,background:'#EA580C',borderRadius:12,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            </div>
+            <span style={{fontSize:28,fontWeight:800,color:'#fff',letterSpacing:'-0.5px',fontFamily:"'Plus Jakarta Sans',sans-serif"}}>Cachuelos<span style={{width:8,height:8,background:'#EA580C',borderRadius:'50%',display:'inline-block',marginLeft:2,verticalAlign:'top',marginTop:4}}/></span>
+          </div>
+
+          <div style={{fontSize:11,fontWeight:700,color:'#EA580C',letterSpacing:'1.5px',marginBottom:10,display:'flex',alignItems:'center',gap:6,...anim(450)}}>
+            <span style={{height:2,width:24,background:'#EA580C',borderRadius:1,display:'inline-block'}}/>
+            Quiénes somos
+          </div>
+
+          <div style={{fontSize:20,fontWeight:800,color:'#fff',lineHeight:1.25,marginBottom:12,...anim(580)}}>
+            Conectamos estudiantes y personas con oportunidades de <span style={{color:'#EA580C'}}>trabajo rápido en Lima.</span>
+          </div>
+
+          <div style={{fontSize:13,color:'#64748B',lineHeight:1.7,marginBottom:20,...anim(700)}}>
+            Somos un equipo multidisciplinario que combina tecnología, experiencia de usuario y conocimiento del mercado local para crear soluciones simples, útiles y accesibles.
+          </div>
+
+          <div style={{display:'flex',gap:8,flexWrap:'wrap',...anim(820)}}>
+            {[['#61DAFB','React 19'],['#3ECF8E','Supabase'],['#fff','Vercel'],['#3FB1CE','Leaflet']].map(([c,label])=>(
+              <div key={label} style={{display:'flex',alignItems:'center',gap:6,background:'#1E293B',border:'1px solid #334155',borderRadius:10,padding:'6px 12px',fontSize:12,color:'#94A3B8',fontWeight:500}}>
+                <span style={{width:6,height:6,borderRadius:'50%',background:c,display:'inline-block'}}/>
+                {label}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Columna derecha */}
+        <div>
+          <div style={{fontSize:11,fontWeight:700,color:'#EA580C',letterSpacing:'1.5px',marginBottom:14,display:'flex',alignItems:'center',gap:8,...anim(500)}}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#EA580C" strokeWidth="2.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            Nuestro equipo — CachuLab
+            <div style={{flex:1,height:1,background:'#1E293B'}}/>
+          </div>
+
+          {/* Cards del equipo */}
+          <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:14}}>
+            {MEMBERS.map((m,i)=>(
+              <div key={m.name} style={{background:'#1E293B',border:'1px solid #334155',borderRadius:14,padding:'14px 8px',textAlign:'center',cursor:'default',transition:'all 0.25s',position:'relative',...memberAnim(i)}}
+                onMouseEnter={e=>{e.currentTarget.style.background='#1E3A5F';e.currentTarget.style.transform='translateY(-4px)';e.currentTarget.style.borderColor='#EA580C';}}
+                onMouseLeave={e=>{e.currentTarget.style.background='#1E293B';e.currentTarget.style.transform='translateY(0)';e.currentTarget.style.borderColor='#334155';}}>
+                <div style={{fontSize:10,background:'#0F172A',color:'#64748B',borderRadius:6,padding:'3px 6px',marginBottom:6,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{m.tip}</div>
+                <div style={{width:44,height:44,borderRadius:'50%',background:m.color,margin:'0 auto 8px',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:800,fontSize:15,color:'#fff',transition:'transform 0.25s'}}>{m.init}</div>
+                <div style={{fontSize:12,fontWeight:700,color:'#F1F5F9',marginBottom:2}}>{m.name}</div>
+                <div style={{fontSize:10,color:'#64748B'}}>{m.role}</div>
+                {m.badge&&<div style={{display:'inline-block',background:'#EA580C',color:'#fff',borderRadius:20,padding:'2px 8px',fontSize:9,fontWeight:700,marginTop:5}}>{m.badge}</div>}
+              </div>
+            ))}
+          </div>
+
+          {/* Métricas */}
+          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8}}>
+            {[
+              {num:'4',label:'integrantes multidisciplinarios'},
+              {num:'Stack',label:'moderno y escalable'},
+              {num:'Lima',label:'enfoque 100% local'},
+            ].map((m,i)=>(
+              <div key={m.label} style={{background:'#1E293B',border:'1px solid #334155',borderRadius:12,padding:12,...anim(1050+i*100)}}>
+                <div style={{fontSize:20,fontWeight:800,color:'#fff',marginBottom:2}}>{m.num}</div>
+                <div style={{fontSize:11,color:'#64748B',lineHeight:1.4}}>{m.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Proceso */}
+      <div style={{marginTop:28,position:'relative',zIndex:1,...anim(1280)}}>
+        <div style={{fontSize:11,fontWeight:700,color:'#EA580C',letterSpacing:'1.5px',marginBottom:16,display:'flex',alignItems:'center',gap:8}}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#EA580C" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          Nuestro proceso
+          <div style={{flex:1,height:1,background:'#1E293B'}}/>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:0,position:'relative'}}>
+          <div style={{position:'absolute',top:20,left:'10%',right:'10%',height:2,background:'#1E293B',zIndex:0}}>
+            <div style={{height:'100%',background:'#EA580C',borderRadius:1,width:visible?'100%':'0',transition:'width 1s ease-out 1.5s'}}/>
+          </div>
+          {STEPS.map((s,i)=>(
+            <div key={s.n} style={{textAlign:'center',position:'relative',zIndex:1,...stepAnim(i)}}>
+              <div style={{position:'relative',width:'fit-content',margin:'0 auto 10px'}}>
+                <div style={{width:40,height:40,borderRadius:'50%',background:'#1E293B',border:'2px solid #334155',margin:'0 auto',display:'flex',alignItems:'center',justifyContent:'center',transition:'all 0.25s'}}
+                  onMouseEnter={e=>{e.currentTarget.style.background='#EA580C';e.currentTarget.style.borderColor='#EA580C';}}
+                  onMouseLeave={e=>{e.currentTarget.style.background='#1E293B';e.currentTarget.style.borderColor='#334155';}}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" strokeWidth="2"><polyline points="20 6 9 17 4 12"/></svg>
+                </div>
+                <div style={{width:18,height:18,background:'#EA580C',borderRadius:'50%',fontSize:9,fontWeight:800,color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',position:'absolute',top:-2,right:-8}}>{s.n}</div>
+              </div>
+              <div style={{fontSize:12,fontWeight:700,color:'#F1F5F9',marginBottom:3}}>{s.title}</div>
+              <div style={{fontSize:10,color:'#64748B',lineHeight:1.5,padding:'0 4px'}}>{s.desc}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:24,paddingTop:20,borderTop:'1px solid #1E293B',flexWrap:'wrap',gap:8,position:'relative',zIndex:1,...anim(1700)}}>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          {[
+            ['Universidad Científica del Sur'],
+            ['Equipo CachuLab'],
+            ['Lima, Perú 2026'],
+          ].map(([t])=>(
+            <div key={t} style={{display:'inline-flex',alignItems:'center',gap:6,background:'#1E293B',borderRadius:20,padding:'5px 12px',fontSize:11,color:'#64748B'}}>
+              <span style={{color:'#F1F5F9',fontWeight:600}}>{t}</span>
+            </div>
+          ))}
+        </div>
+        <div style={{fontSize:11,color:'#64748B'}}>Hecho con <span style={{color:'#EA580C',fontWeight:700}}>React</span> + <span style={{color:'#EA580C',fontWeight:700}}>Supabase</span></div>
+      </div>
+      </div>
+    </div>
+  );
+}
 export default function App(){
   const[authUser,setAuthUser]=useState(null);
   const[profile,setProfile]=useState(null);
@@ -3126,6 +3506,7 @@ export default function App(){
   const[toastData,setToastData]=useState(null);
   const[showAuth,setShowAuth]=useState(false);
   const[authReason,setAuthReason]=useState('');
+  const[pageKey,setPageKey]=useState(0);
 
   const toast=useCallback((msg,type='success')=>{setToastData({msg,type});setTimeout(()=>setToastData(null),3000);},[]);
 
@@ -3149,6 +3530,7 @@ export default function App(){
   const signOut=async()=>{await sb.auth.signOut();setAuthUser(null);setProfile(null);setPage('home');setHistory([]);};
 
   const nav=(p,data={})=>{
+    setPageKey(k=>k+1);
     setHistory(h=>[...h,{page,jid,pid}]);
     setPage(p);
     if(data.jid)setJid(data.jid);
@@ -3168,18 +3550,19 @@ export default function App(){
       <style dangerouslySetInnerHTML={{__html:G}}/>
       <div style={{minHeight:'100vh',background:'#F7F8FA',width:'100%'}}>
         <Navbar page={page} nav={nav} profile={profile} onSignOut={signOut} requireAuth={requireAuth} openAuth={openAuth}/>
-        <main style={{padding:'28px 32px'}}>
+        <main key={pageKey} style={{padding:'28px 32px',animation:'pageEnter .35s ease-out both'}}>
           {page==='home'&&<HomePage profile={profile} nav={nav} toast={toast} onStartVerification={()=>setShowVerif(true)} requireAuth={requireAuth}/>}          {page==='map'      &&<MapPage      nav={nav}/>}
           {page==='job'      &&<JobDetailPage profile={profile} jid={jid} nav={nav} back={back} toast={toast} requireAuth={requireAuth}/>}
           {page==='post-job' &&<PostJobPage  profile={profile} nav={nav} back={back} toast={toast} authUser={authUser} openAuth={openAuth}/>}
           {page==='my-jobs'  &&<MyJobsPage   profile={profile} nav={nav} authUser={authUser} openAuth={openAuth}/>}
           {page==='profile' && <ProfilePage currentProfile={profile} pid={pid} nav={nav} back={back} toast={toast}/>}
           {page==='admin'&&<AdminPage profile={profile} back={back} toast={toast}/>}
+          {page==='about'&&<AboutSection nav={nav}/>}
           {showVerif&&<VerificationModal profile={profile} onClose={()=>setShowVerif(false)} onDone={()=>{setShowVerif(false);fetchProfile(authUser.id);}} toast={toast}/>}
           {showAuth&&<AuthScreen reason={authReason} onAuth={u=>{setAuthUser(u);fetchProfile(u.id);setShowAuth(false);}} onClose={()=>setShowAuth(false)}/>}
         </main>
       </div>
-      <SocialProofNotif/>
+      <MessageNotif authUser={authUser} onNavigate={nav}/>
        {toastData&&<Toast msg={toastData.msg} type={toastData.type}/>}
       <Cachu page={page} profile={profile}/>
     </>
